@@ -54,13 +54,21 @@ jobs:
           distribution: temurin
           java-version: '17'           # 只是编译 d8/apksigner 用，产物仍是 Java 8 字节码
 
-      - name: 安装 Android SDK
-        uses: android-actions/setup-android@v3
-
+      # runner 自带 /usr/local/lib/android/sdk 与 cmdline-tools，直接用，
+      # 不走 android-actions/setup-android（它内部跑 `sdkmanager tools`，
+      # 而新版 SDK 已经删掉 tools 包，那一步会直接失败）。
       - name: 安装 platform 与 build-tools
         run: |
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager --install "platforms;${ANDROID_PLATFORM}" "build-tools;${BUILD_TOOLS_VERSION}"
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          [ -n "$SDK" ] || SDK=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT="$SDK" ANDROID_HOME="$SDK"
+          SDKMGR="$(find "$SDK/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)"
+          [ -n "$SDKMGR" ] || { echo "找不到 sdkmanager"; ls -R "$SDK" | head -30; exit 1; }
+          echo "sdkmanager: $SDKMGR"
+          yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
+          "$SDKMGR" --install "platforms;${ANDROID_PLATFORM}" "build-tools;${BUILD_TOOLS_VERSION}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
 
       - name: 导出工具链路径
         run: |
