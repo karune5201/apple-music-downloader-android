@@ -192,6 +192,18 @@ VERSION_NAME=1.0.1 ./android-native/build-apk.sh     # versionCode 自动算成 
 git tag v1.0.1 && git push origin v1.0.1
 ```
 
+CI 发布流程（`.github/workflows/release.yml`）已验证可用：
+
+| 触发 | 结果 |
+|---|---|
+| 推 `v*` tag | 编译 + 校验签名 + 发 Release（APK 与 `.sha256` 两个附件） |
+| Actions 页手动运行 | 填版本名；`release` 勾掉就只出 Artifact，不发 Release |
+
+流水线做的事：装 Go/JDK17/SDK → `go build` + `go vet` + `go test` 门禁 →
+`fetch-ffmpeg.sh` → `build-core.sh` → `build-shim.sh` → `build-apk.sh` →
+**比对签名指纹**（不一致直接失败）→ `zipalign -c` → 上传 Artifact → 发版。
+目标平台是 `platforms;android-29` + `build-tools;34.0.0`。
+
 ```bash
 grep -n "VERSION_CODE" android-native/build-apk.sh   # 手动覆盖时才用
 ```
