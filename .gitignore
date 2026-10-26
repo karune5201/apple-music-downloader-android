@@ -12,8 +12,9 @@
 # Go
 /amdl
 /amdl_*
-alacfix
-!cmd/alacfix/
+# 只忽略根目录误编译出的二进制；不能写成裸 alacfix，
+# 否则会连 internal/media/alacfix/ 整个包一起忽略（踩过）
+/alacfix
 
 # 补丁残留与临时文件
 *.orig
