@@ -1,0 +1,26 @@
+--- a/internal/widevine-rip/rip.go
++++ b/internal/widevine-rip/rip.go
+@@ -18,6 +18,7 @@
+ 	"errors"
+ 	"fmt"
+ 
++	"amdl/internal/logx"
+ 	"amdl/internal/widevine-rip/key"
+ )
+ 
+@@ -63,12 +64,12 @@
+ 	if err != nil {
+ 		return err
+ 	}
+-	fmt.Println("Downloaded")
++	logx.OKT("net.drm.song_downloaded")
+ 	if err := DecryptMP4ToFile(encrypted, contentKey, outputPath); err != nil {
+-		fmt.Println("Decryption failed")
++		logx.ErrorT("net.drm.decrypt_failed")
+ 		return err
+ 	}
+-	fmt.Println("Decrypted")
++	logx.OKT("net.drm.decrypted")
+ 	return nil
+ }
+ 

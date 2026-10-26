@@ -1,0 +1,72 @@
+--- a/internal/app/mv.go
++++ b/internal/app/mv.go
+@@ -9,6 +9,8 @@
+ 	"strings"
+ 
+ 	"amdl/internal/amp-api"
++	"amdl/internal/i18n"
++	"amdl/internal/logx"
+ 	mvmedia "amdl/internal/media/mv"
+ 	"amdl/internal/model"
+ 	playreadyrip "amdl/internal/playready-rip"
+@@ -22,7 +24,7 @@
+ func (r *Runner) mvDownloader(adamID string, saveDir string, token string, storefront string, track *model.Track) error {
+ 	MVInfo, err := ampapi.GetMusicVideoResp(storefront, adamID, r.Config.General.Language, token)
+ 	if err != nil {
+-		fmt.Println("\u26A0 Failed to get MV manifest:", err)
++		logx.WarnT("app.mv.manifest_failed", err)
+ 		return nil
+ 	}
+ 	if len(MVInfo.Data) == 0 {
+@@ -43,11 +45,11 @@
+ 
+ 	mvOutPath := filepath.Join(saveDir, fmt.Sprintf("%s.mp4", forbiddenNames.ReplaceAllString(mvSaveName, "_")))
+ 
+-	fmt.Println(MVInfo.Data[0].Attributes.Name)
++	logx.Println(MVInfo.Data[0].Attributes.Name)
+ 
+ 	exists, _ := fileExists(mvOutPath)
+ 	if exists {
+-		fmt.Println("MV already exists locally.")
++		logx.OKT("app.mv.already_exists")
+ 		r.recordAddedMV(mvOutPath, MVInfo)
+ 		return nil
+ 	}
+@@ -73,23 +75,23 @@
+ 		baseThumbName := forbiddenNames.ReplaceAllString(mvSaveName, "_") + "_thumbnail"
+ 		covPath, err = r.writeCover(saveDir, baseThumbName, thumbURL)
+ 		if err != nil {
+-			fmt.Println("Failed to save MV thumbnail:", err)
++			logx.WarnT("app.mv.thumbnail_failed", err)
+ 			covPath = ""
+ 		} else {
+ 			defer os.Remove(covPath)
+ 		}
+ 	}
+ 
+-	fmt.Printf("MV Remuxing...")
++	logx.Print(i18n.T("app.mv.remuxing"))
+ 	if err := mvmedia.Mux(vidPath, audPath, mvOutPath); err != nil {
+-		fmt.Printf("MV mux failed: %v\n", err)
++		logx.ErrorT("app.mv.mux_failed", err)
+ 		return err
+ 	}
+-	fmt.Printf("\rMV Remuxed.   \n")
++	logx.Print("\r" + i18n.T("app.mv.remuxed") + "   \n")
+ 
+ 	if err := r.writeMVMP4Tags(mvOutPath, MVInfo, track, covPath); err != nil {
+ 		_ = os.Remove(mvOutPath)
+-		fmt.Printf("MV tag writing failed: %v\n", err)
++		logx.ErrorT("app.mv.tag_failed", err)
+ 		return err
+ 	}
+ 
+@@ -123,7 +125,7 @@
+ 		return fmt.Errorf("extract video manifest: %w", err)
+ 	}
+ 	if usePlayReady {
+-		fmt.Println("Video DRM: PlayReady")
++		logx.DetailT("app.mv.drm_playready")
+ 	}
+ 	if err := r.downloadMVTrack(ctx, adamID, videoURL, usePlayReady, videoPath); err != nil {
+ 		return fmt.Errorf("video stream: %w", err)

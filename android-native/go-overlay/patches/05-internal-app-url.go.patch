@@ -1,0 +1,116 @@
+--- a/internal/app/url.go
++++ b/internal/app/url.go
+@@ -1,14 +1,16 @@
+ package app
+ 
+ import (
++	"amdl/internal/amp-api"
++	"amdl/internal/download"
++	"amdl/internal/i18n"
++	"amdl/internal/logx"
+ 	"bufio"
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"github.com/fatih/color"
+ 	"github.com/olekukonko/tablewriter"
+-	"amdl/internal/amp-api"
+-	"amdl/internal/download"
+ 	"net/http"
+ 	"net/url"
+ 	"os"
+@@ -48,7 +50,7 @@
+ 	storefront, songId := checkUrl(songUrl, "song")
+ 	manifest, err := ampapi.GetSongResp(storefront, songId, r.Config.General.Language, token)
+ 	if err != nil {
+-		fmt.Println("\u26A0 Failed to get manifest:", err)
++		logx.WarnT("app.flow.manifest_failed", err)
+ 		r.State.Counter.NotSong++
+ 		return "", err
+ 	}
+@@ -139,9 +141,9 @@
+ 
+ 	table := tablewriter.NewWriter(os.Stdout)
+ 	if relationship == "albums" {
+-		table.SetHeader([]string{"", "Album Name", "Date", "Album ID"})
++		table.SetHeader([]string{"", i18n.T("app.flow.col_album_name"), i18n.T("app.flow.col_date"), i18n.T("app.flow.col_id")})
+ 	} else if relationship == "music-videos" {
+-		table.SetHeader([]string{"", "MV Name", "Date", "MV ID"})
++		table.SetHeader([]string{"", i18n.T("app.flow.col_mv_name"), i18n.T("app.flow.col_date"), i18n.T("app.flow.col_id")})
+ 	}
+ 	table.SetRowLine(false)
+ 	table.SetHeaderColor(tablewriter.Colors{},
+@@ -160,18 +162,22 @@
+ 	}
+ 	table.Render()
+ 	if r.Flags.ArtistSelect {
+-		fmt.Println("You have selected all options:")
++		logx.OKT("app.flow.select_all_done")
+ 		return urls, nil
+ 	}
+ 	reader := bufio.NewReader(os.Stdin)
+-	fmt.Println("Please select from the " + relationship + " options above (multiple options separated by commas, ranges supported, or type 'all' to select all)")
++	kindKey := "app.flow.kind_albums"
++	if relationship != "albums" {
++		kindKey = "app.flow.kind_music_videos"
++	}
++	logx.PlainT("app.flow.select_hint", i18n.T(kindKey))
+ 	cyanColor := color.New(color.FgCyan)
+-	cyanColor.Print("Enter your choice: ")
++	askForInput(cyanColor, i18n.T("app.flow.enter_choice"))
+ 	input, _ := reader.ReadString('\n')
+ 
+ 	input = strings.TrimSpace(input)
+ 	if input == "all" {
+-		fmt.Println("You have selected all options:")
++		logx.OKT("app.flow.select_all_done")
+ 		return urls, nil
+ 	}
+ 
+@@ -186,37 +192,38 @@
+ 		}
+ 	}
+ 
+-	fmt.Println("You have selected the following options:")
++	logx.OKT("app.flow.selected_options")
+ 	for _, opt := range selectedOptions {
+ 		if len(opt) == 1 {
+ 			num, err := strconv.Atoi(opt[0])
+ 			if err != nil {
+-				fmt.Println("Invalid option:", opt[0])
++				logx.WarnT("app.flow.option_invalid", opt[0])
+ 				continue
+ 			}
+ 			if num > 0 && num <= len(options) {
+-				fmt.Println(options[num-1])
++				// 选中的表格行原样回显，属于数据，不翻译
++				logx.Println(options[num-1])
+ 				args = append(args, urls[num-1])
+ 			} else {
+-				fmt.Println("Option out of range:", opt[0])
++				logx.WarnT("app.flow.option_out_of_range", opt[0])
+ 			}
+ 		} else if len(opt) == 2 {
+ 			start, err1 := strconv.Atoi(opt[0])
+ 			end, err2 := strconv.Atoi(opt[1])
+ 			if err1 != nil || err2 != nil {
+-				fmt.Println("Invalid range:", opt)
++				logx.WarnT("app.flow.range_invalid", opt)
+ 				continue
+ 			}
+ 			if start < 1 || end > len(options) || start > end {
+-				fmt.Println("Range out of range:", opt)
++				logx.WarnT("app.flow.range_out_of_range", opt)
+ 				continue
+ 			}
+ 			for i := start; i <= end; i++ {
+-				fmt.Println(options[i-1])
++				logx.Println(options[i-1])
+ 				args = append(args, urls[i-1])
+ 			}
+ 		} else {
+-			fmt.Println("Invalid option:", opt)
++			logx.WarnT("app.flow.option_invalid", opt)
+ 		}
+ 	}
+ 	return args, nil

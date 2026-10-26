@@ -1,0 +1,160 @@
+--- a/internal/app/search.go
++++ b/internal/app/search.go
+@@ -1,9 +1,11 @@
+ package app
+ 
+ import (
++	"amdl/internal/amp-api"
++	"amdl/internal/i18n"
++	"amdl/internal/logx"
+ 	"fmt"
+ 	"github.com/AlecAivazis/survey/v2"
+-	"amdl/internal/amp-api"
+ 	"strings"
+ )
+ 
+@@ -31,13 +33,13 @@
+ 	switch quality {
+ 	case "atmos":
+ 		r.Flags.Atmos = true
+-		fmt.Println("Quality set to: Dolby Atmos")
++		logx.OKT("app.flow.quality_atmos")
+ 	case "aac":
+ 		r.Flags.AAC = true
+ 		r.Config.Media.AacType = "aac"
+-		fmt.Println("Quality set to: High-Quality (AAC)")
++		logx.OKT("app.flow.quality_aac")
+ 	case "alac":
+-		fmt.Println("Quality set to: Lossless (ALAC)")
++		logx.OKT("app.flow.quality_alac")
+ 	}
+ }
+ 
+@@ -45,16 +47,16 @@
+ 
+ func (r *Runner) promptForQuality(item SearchResultItem, token string) (string, error) {
+ 	if item.Type == "Artist" {
+-		fmt.Println("Artist selected. Proceeding to list all albums/videos.")
++		logx.StepT("app.flow.artist_selected")
+ 		return "default", nil
+ 	}
+ 
+-	fmt.Printf("\nFetching available qualities for: %s\n", item.Name)
++	logx.StepT("app.flow.fetch_qualities", item.Name)
+ 
+ 	qualities := []QualityOption{
+-		{ID: "alac", Description: "Lossless (ALAC)"},
+-		{ID: "aac", Description: "High-Quality (AAC)"},
+-		{ID: "atmos", Description: "Dolby Atmos"},
++		{ID: "alac", Description: i18n.T("app.flow.quality_desc_alac")},
++		{ID: "aac", Description: i18n.T("app.flow.quality_desc_aac")},
++		{ID: "atmos", Description: i18n.T("app.flow.quality_desc_atmos")},
+ 	}
+ 	qualityOptions := []string{}
+ 	for _, q := range qualities {
+@@ -62,11 +64,13 @@
+ 	}
+ 
+ 	prompt := &survey.Select{
+-		Message:  "Select a quality to download:",
++		Message:  i18n.T("app.flow.quality_prompt"),
+ 		Options:  qualityOptions,
+ 		PageSize: 5,
+ 	}
+ 
++	// survey 直接读 stdin，先发 ##prompt 让 App 弹选择器。
++	logx.Print("##prompt\n")
+ 	selectedIndex := 0
+ 	err := survey.AskOne(prompt, &selectedIndex)
+ 	if err != nil {
+@@ -86,7 +90,14 @@
+ 		return "", fmt.Errorf("invalid search type: %s. Use 'album', 'song', or 'artist'", searchType)
+ 	}
+ 
+-	fmt.Printf("Searching for %ss: \"%s\" in storefront \"%s\"\n", searchType, query, r.Config.General.Storefront)
++	typeKey := "app.flow.kind_albums"
++	switch searchType {
++	case "song":
++		typeKey = "app.flow.kind_songs"
++	case "artist":
++		typeKey = "app.flow.kind_artists"
++	}
++	logx.StepT("app.flow.search_start", i18n.T(typeKey), query, r.Config.General.Storefront)
+ 
+ 	offset := 0
+ 	limit := 15 // Increased limit for better navigation
+@@ -104,8 +115,8 @@
+ 		hasNext := false
+ 
+ 		// Special options for navigation
+-		const prevPageOpt = "⬅️  Previous Page"
+-		const nextPageOpt = "➡️  Next Page"
++		prevPageOpt := i18n.T("app.flow.page_prev")
++		nextPageOpt := i18n.T("app.flow.page_next")
+ 
+ 		// Add previous page option if applicable
+ 		if offset > 0 {
+@@ -120,9 +131,8 @@
+ 					if len(item.Attributes.ReleaseDate) >= 4 {
+ 						year = item.Attributes.ReleaseDate[:4]
+ 					}
+-					trackInfo := fmt.Sprintf("%d tracks", item.Attributes.TrackCount)
+-					detail := fmt.Sprintf("%s (%s, %s)", item.Attributes.ArtistName, year, trackInfo)
+-					displayOptions = append(displayOptions, fmt.Sprintf("%s - %s", item.Attributes.Name, detail))
++					trackInfo := i18n.T("app.flow.track_count", item.Attributes.TrackCount)
++					displayOptions = append(displayOptions, i18n.T("app.flow.search_album_line", item.Attributes.Name, item.Attributes.ArtistName, year, trackInfo))
+ 					items = append(items, SearchResultItem{Type: "Album", URL: item.Attributes.URL, ID: item.ID})
+ 				}
+ 				hasNext = searchResp.Results.Albums.Next != ""
+@@ -130,8 +140,7 @@
+ 		case "song":
+ 			if searchResp.Results.Songs != nil {
+ 				for _, item := range searchResp.Results.Songs.Data {
+-					detail := fmt.Sprintf("%s (%s)", item.Attributes.ArtistName, item.Attributes.AlbumName)
+-					displayOptions = append(displayOptions, fmt.Sprintf("%s - %s", item.Attributes.Name, detail))
++					displayOptions = append(displayOptions, i18n.T("app.flow.search_song_line", item.Attributes.Name, item.Attributes.ArtistName, item.Attributes.AlbumName))
+ 					items = append(items, SearchResultItem{Type: "Song", URL: item.Attributes.URL, ID: item.ID})
+ 				}
+ 				hasNext = searchResp.Results.Songs.Next != ""
+@@ -143,7 +152,7 @@
+ 					if len(item.Attributes.GenreNames) > 0 {
+ 						detail = strings.Join(item.Attributes.GenreNames, ", ")
+ 					}
+-					displayOptions = append(displayOptions, fmt.Sprintf("%s (%s)", item.Attributes.Name, detail))
++					displayOptions = append(displayOptions, i18n.T("app.flow.search_artist_line", item.Attributes.Name, detail))
+ 					items = append(items, SearchResultItem{Type: "Artist", URL: item.Attributes.URL, ID: item.ID})
+ 				}
+ 				hasNext = searchResp.Results.Artists.Next != ""
+@@ -151,7 +160,7 @@
+ 		}
+ 
+ 		if len(items) == 0 && offset == 0 {
+-			fmt.Println("No results found.")
++			logx.WarnT("app.flow.no_results")
+ 			return "", nil
+ 		}
+ 
+@@ -161,11 +170,13 @@
+ 		}
+ 
+ 		prompt := &survey.Select{
+-			Message:  "Use arrow keys to navigate, Enter to select:",
++			Message:  i18n.T("app.flow.navigate_prompt"),
+ 			Options:  displayOptions,
+ 			PageSize: limit, // Show a full page of results
+ 		}
+ 
++		// survey 直接读 stdin，先发 ##prompt 让 App 弹选择器。
++		logx.Print("##prompt\n")
+ 		selectedIndex := 0
+ 		err = survey.AskOne(prompt, &selectedIndex)
+ 		if err != nil {
+@@ -198,7 +209,7 @@
+ 			return "", fmt.Errorf("could not process quality selection: %w", err)
+ 		}
+ 		if quality == "" { // User cancelled quality selection
+-			fmt.Println("Selection cancelled.")
++			logx.WarnT("app.flow.selection_cancelled")
+ 			return "", nil
+ 		}
+ 

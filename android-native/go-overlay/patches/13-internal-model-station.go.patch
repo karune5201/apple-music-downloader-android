@@ -1,0 +1,82 @@
+--- a/internal/model/station.go
++++ b/internal/model/station.go
+@@ -8,9 +8,11 @@
+ 	"strconv"
+ 	"strings"
+ 
++	"amdl/internal/amp-api"
++	"amdl/internal/i18n"
++	"amdl/internal/logx"
+ 	"github.com/fatih/color"
+ 	"github.com/olekukonko/tablewriter"
+-	"amdl/internal/amp-api"
+ )
+ 
+ type Station struct {
+@@ -61,7 +63,8 @@
+ 	for i, trackData := range tracksResp.Data {
+ 		albumResp, err := ampapi.GetAlbumRespByHref(trackData.Href, a.Language, token)
+ 		if err != nil {
+-			fmt.Println("Error getting album response:", err)
++			// 单曲取专辑失败只跳过这一首，整体还能继续
++			logx.WarnT("model.station.album_resp_failed", err)
+ 			continue
+ 		}
+ 		albumLen := len(albumResp.Data[0].Relationships.Tracks.Data)
+@@ -142,16 +145,18 @@
+ 	}
+ 	table.Render()
+ 
+-	fmt.Println("Please select from the track options above (multiple options separated by commas, ranges supported, or type 'all' to select all)")
+-	color.New(color.FgCyan).Print("select: ")
++	logx.PlainT("model.select.hint")
++	// App 靠这个标记判断接下来要读 stdin，提示文案本身是翻译过的
++	logx.Print("##prompt\n")
++	logx.Print(color.New(color.FgCyan).Sprint(i18n.T("model.select.prompt")))
+ 	reader := bufio.NewReader(os.Stdin)
+ 	input, err := reader.ReadString('\n')
+ 	if err != nil {
+-		fmt.Println(err)
++		logx.WarnT("model.select.read_failed", err)
+ 	}
+ 	input = strings.TrimSpace(input)
+ 	if input == "all" {
+-		fmt.Println("You have selected all options:")
++		logx.DetailT("model.select.all_selected")
+ 		return arr
+ 	}
+ 
+@@ -165,28 +170,28 @@
+ 		if len(option) == 1 {
+ 			num, err := strconv.Atoi(option[0])
+ 			if err != nil {
+-				fmt.Println("Invalid option:", option[0])
++				logx.WarnT("model.select.invalid_option", option[0])
+ 				continue
+ 			}
+ 			if num > 0 && num <= len(arr) {
+ 				selected = append(selected, num)
+ 			} else {
+-				fmt.Println("Option out of range:", option[0])
++				logx.WarnT("model.select.out_of_range", option[0])
+ 			}
+ 			continue
+ 		}
+ 		if len(option) != 2 {
+-			fmt.Println("Invalid option:", part)
++			logx.WarnT("model.select.invalid_option", part)
+ 			continue
+ 		}
+ 		start, err1 := strconv.Atoi(option[0])
+ 		end, err2 := strconv.Atoi(option[1])
+ 		if err1 != nil || err2 != nil {
+-			fmt.Println("Invalid range:", part)
++			logx.WarnT("model.select.invalid_range", part)
+ 			continue
+ 		}
+ 		if start < 1 || end > len(arr) || start > end {
+-			fmt.Println("Range out of range:", part)
++			logx.WarnT("model.select.range_out_of_range", part)
+ 			continue
+ 		}
+ 		for i := start; i <= end; i++ {

@@ -1,0 +1,62 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.amdl.nativeapp'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.amdl.nativeapp'
+        minSdk 26
+        targetSdk 35
+        versionCode 100
+        versionName '1.0.0'
+        // The download core is arm64 only.
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    signingConfigs {
+        amdlLocal {
+            // 固定路径：签名保持一致，升级才能覆盖安装（见 ../signing/README.md）
+            def ks = System.getenv('AMDL_KEYSTORE') ?: file('../signing/amdl-release.keystore').absolutePath
+            def pass = System.getenv('AMDL_KEYSTORE_PASSWORD') ?: 'android'
+            storeFile file(ks)
+            storePassword pass
+            keyAlias System.getenv('AMDL_KEY_ALIAS') ?: 'androiddebugkey'
+            keyPassword System.getenv('AMDL_KEY_PASSWORD') ?: pass
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.amdlLocal
+        }
+        release {
+            signingConfig signingConfigs.amdlLocal
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        // Keep native libraries as extracted files: the core is executed as a
+        // process, and nativeLibraryDir is the only executable directory in the
+        // app sandbox.
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+}
+
+dependencies {
+    // Intentionally empty: the UI uses framework widgets only, so the app has no
+    // third-party runtime dependencies.
+}

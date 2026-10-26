@@ -1,0 +1,155 @@
+--- a/internal/app/media.go
++++ b/internal/app/media.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"amdl/internal/download"
+ 	"amdl/internal/fsutil"
++	"amdl/internal/logx"
+ 	"amdl/internal/model"
+ 	"amdl/internal/wrapper"
+ 	"errors"
+@@ -327,7 +328,7 @@
+ 		}
+ 		return streams[i].rank > streams[j].rank
+ 	})
+-	fmt.Println("Audio: " + streams[0].groupID)
++	logx.Println("Audio: " + streams[0].groupID)
+ 	return streams[0].url, nil
+ }
+ 
+@@ -376,14 +377,14 @@
+ 		if errors.Is(err, wrapper.ErrNotConfigured) {
+ 			return "", err
+ 		}
+-		fmt.Println("Error connecting to lite-server:", err)
++		logx.ErrorT("app.media.lite_server_error", err)
+ 		return "", err
+ 	}
+ 	if f == "song" {
+ 		if EnhancedHls != "" {
+-			fmt.Println("Received URL:", EnhancedHls)
++			logx.Println("Received URL:", EnhancedHls)
+ 		} else {
+-			fmt.Println("Received an empty response")
++			logx.WarnT("app.media.lite_empty_response")
+ 		}
+ 	}
+ 	return EnhancedHls, nil
+@@ -424,7 +425,8 @@
+ 		return master.Variants[i].AverageBandwidth > master.Variants[j].AverageBandwidth
+ 	})
+ 	if r.Flags.Debug && more_mode {
+-		fmt.Println("\nDebug: All Available Variants:")
++		logx.Debug("")
++		logx.Debug("Debug: All Available Variants:")
+ 		var data [][]string
+ 		for _, variant := range master.Variants {
+ 			data = append(data, []string{variant.Codecs, variant.Audio, fmt.Sprint(variant.Bandwidth)})
+@@ -497,31 +499,31 @@
+ 			}
+ 		}
+ 
+-		fmt.Println("Available Audio Formats:")
+-		fmt.Println("------------------------")
+-		fmt.Printf("AAC             : %s\n", formatAvailability(hasAAC, aacQuality))
+-		fmt.Printf("Lossless        : %s\n", formatAvailability(hasLossless, losslessQuality))
+-		fmt.Printf("Hi-Res Lossless : %s\n", formatAvailability(hasHiRes, hiResQuality))
+-		fmt.Printf("Dolby Atmos     : %s\n", formatAvailability(hasAtmos, atmosQuality))
+-		fmt.Printf("Dolby Audio     : %s\n", formatAvailability(hasDolbyAudio, dolbyAudioQuality))
+-		fmt.Println("------------------------")
++		logx.Println("Available Audio Formats:")
++		logx.Println("------------------------")
++		logx.Printf("AAC             : %s\n", formatAvailability(hasAAC, aacQuality))
++		logx.Printf("Lossless        : %s\n", formatAvailability(hasLossless, losslessQuality))
++		logx.Printf("Hi-Res Lossless : %s\n", formatAvailability(hasHiRes, hiResQuality))
++		logx.Printf("Dolby Atmos     : %s\n", formatAvailability(hasAtmos, atmosQuality))
++		logx.Printf("Dolby Audio     : %s\n", formatAvailability(hasDolbyAudio, dolbyAudioQuality))
++		logx.Println("------------------------")
+ 
+-		fmt.Printf("%+v\n", r.Config)
+-		fmt.Println("===== SELECTOR =====")
++		logx.Printf("%+v\n", r.Config)
++		logx.Println("===== SELECTOR =====")
+ 		for _, variant := range master.Variants {
+-			fmt.Printf("Codec=%q Audio=%q AvgBW=%d BW=%d\n",
++			logx.Printf("Codec=%q Audio=%q AvgBW=%d BW=%d\n",
+ 				variant.Codecs,
+ 				variant.Audio,
+ 				variant.AverageBandwidth,
+ 				variant.Bandwidth,
+ 			)
+ 		}
+-		fmt.Printf("r.Flags.Atmos=%v r.Flags.AAC=%v AlacMax=%d\n",
++		logx.Printf("r.Flags.Atmos=%v r.Flags.AAC=%v AlacMax=%d\n",
+ 			r.Flags.Atmos,
+ 			r.Flags.AAC,
+ 			r.Config.Media.AlacMax,
+ 		)
+-		fmt.Println("====================")
++		logx.Println("====================")
+ 
+ 		return "", "", nil
+ 	}
+@@ -530,8 +532,7 @@
+ 		if r.Flags.Atmos {
+ 			if variant.Codecs == "ec-3" && strings.Contains(variant.Audio, "atmos") {
+ 				if r.Flags.Debug && !more_mode {
+-					fmt.Printf("Debug: Found Dolby Atmos variant - %s (Bitrate: %d Kbps)\n",
+-						variant.Audio, variant.Bandwidth/1000)
++					logx.DebugT("app.media.debug_atmos_variant", variant.Audio, variant.Bandwidth/1000)
+ 				}
+ 				split := strings.Split(variant.Audio, "-")
+ 				length := len(split)
+@@ -541,7 +542,7 @@
+ 				}
+ 				if length_int <= r.Config.Media.AtmosMax {
+ 					if !r.Flags.Debug && !more_mode {
+-						fmt.Printf("%s\n", variant.Audio)
++						logx.Printf("%s\n", variant.Audio)
+ 					}
+ 					streamUrlTemp, err := masterUrl.Parse(variant.URI)
+ 					if err != nil {
+@@ -553,8 +554,7 @@
+ 				}
+ 			} else if variant.Codecs == "ac-3" { // Add Dolby Audio support
+ 				if r.Flags.Debug && !more_mode {
+-					fmt.Printf("Debug: Found Dolby Audio variant - %s (Bitrate: %d Kbps)\n",
+-						variant.Audio, variant.Bandwidth/1000)
++					logx.DebugT("app.media.debug_dolby_audio_variant", variant.Audio, variant.Bandwidth/1000)
+ 				}
+ 				streamUrlTemp, err := masterUrl.Parse(variant.URI)
+ 				if err != nil {
+@@ -568,13 +568,13 @@
+ 		} else if r.Flags.AAC {
+ 			if variant.Codecs == "mp4a.40.2" {
+ 				if r.Flags.Debug && !more_mode {
+-					fmt.Printf("Debug: Found AAC variant - %s (Bitrate: %d)\n", variant.Audio, variant.Bandwidth)
++					logx.DebugT("app.media.debug_aac_variant", variant.Audio, variant.Bandwidth)
+ 				}
+ 				aacregex := regexp.MustCompile(`audio-stereo-\d+`)
+ 				replaced := aacregex.ReplaceAllString(variant.Audio, "aac")
+ 				if replaced == r.Config.Media.AacType {
+ 					if !r.Flags.Debug && !more_mode {
+-						fmt.Printf("%s\n", variant.Audio)
++						logx.Printf("%s\n", variant.Audio)
+ 					}
+ 					streamUrlTemp, err := masterUrl.Parse(variant.URI)
+ 					if err != nil {
+@@ -600,7 +600,7 @@
+ 				}
+ 				if length_int <= r.Config.Media.AlacMax {
+ 					if !r.Flags.Debug && !more_mode {
+-						fmt.Printf("%s-bit / %s Hz\n", split[length-1], split[length-2])
++						logx.Printf("%s-bit / %s Hz\n", split[length-1], split[length-2])
+ 					}
+ 					streamUrlTemp, err := masterUrl.Parse(variant.URI)
+ 					if err != nil {
+@@ -679,7 +679,7 @@
+ 					return "", false, err
+ 				}
+ 				selectedVariant = variant
+-				fmt.Println("Video: " + variant.Resolution + "-" + variant.VideoRange)
++				logx.Println("Video: " + variant.Resolution + "-" + variant.VideoRange)
+ 				break
+ 			}
+ 		}

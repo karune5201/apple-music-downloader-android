@@ -1,0 +1,10 @@
+--- a/internal/config/default.go
++++ b/internal/config/default.go
+@@ -13,6 +13,7 @@
+ 			LiteServer:         "http://127.0.0.1:12340",
+ 			MaxMemoryLimit:     256,
+ 			ExitOnError:        false,
++			UILanguage:         "zh",
+ 		},
+ 		Media: MediaConfig{
+ 			GetM3u8Mode: "hires",

@@ -1,0 +1,63 @@
+--- a/internal/app/artwork.go
++++ b/internal/app/artwork.go
+@@ -1,6 +1,7 @@
+ package app
+ 
+ import (
++	"amdl/internal/logx"
+ 	"fmt"
+ 	"os"
+ 	"os/exec"
+@@ -11,18 +12,18 @@
+ func (r *Runner) saveAnimatedArtwork(dir string, squareVideoURL string, tallVideoURL string) {
+ 	if squareVideoURL != "" {
+ 		if err := r.downloadAnimatedArtwork(dir, "square", squareVideoURL); err != nil {
+-			fmt.Printf("no motion video square: %v\n", err)
++			logx.WarnT("app.artwork.motion_square_missing", err)
+ 		}
+ 		if r.Config.Metadata.Artwork.EmbyAnimated {
+ 			cmd := exec.Command("ffmpeg", "-i", filepath.Join(dir, "square_animated_artwork.mp4"), "-vf", "scale=440:-1", "-r", "24", "-f", "gif", filepath.Join(dir, "folder.jpg"))
+ 			if err := cmd.Run(); err != nil {
+-				fmt.Printf("animated artwork square to gif err: %v\n", err)
++				logx.WarnT("app.artwork.gif_failed", err)
+ 			}
+ 		}
+ 	}
+ 	if tallVideoURL != "" {
+ 		if err := r.downloadAnimatedArtwork(dir, "tall", tallVideoURL); err != nil {
+-			fmt.Printf("no motion video tall: %v\n", err)
++			logx.WarnT("app.artwork.motion_tall_missing", err)
+ 		}
+ 	}
+ }
+@@ -38,15 +39,15 @@
+ 		return fmt.Errorf("check existing artwork: %w", err)
+ 	}
+ 	if exists {
+-		fmt.Printf("Animated artwork %s already exists locally.\n", orientation)
++		logx.OKT("app.artwork.already_exists", orientation)
+ 		return nil
+ 	}
+-	fmt.Printf("Animation Artwork %s Downloading...\n", orientation)
++	logx.StepT("app.artwork.downloading", orientation)
+ 	cmd := exec.Command("ffmpeg", "-loglevel", "quiet", "-y", "-i", videoURL, "-c", "copy", output)
+ 	if err := cmd.Run(); err != nil {
+ 		return fmt.Errorf("download animated artwork: %w", err)
+ 	}
+-	fmt.Printf("Animation Artwork %s Downloaded\n", orientation)
++	logx.OKT("app.artwork.downloaded", orientation)
+ 	return nil
+ }
+ 
+@@ -78,9 +79,9 @@
+ 	}
+ 	if len(r.State.AddedTracks) > startIdx {
+ 		if err := r.writeM3UPlaylist(dir, name, r.State.AddedTracks[startIdx:]); err != nil {
+-			fmt.Printf("Failed to write M3U8 playlist: %v\n", err)
++			logx.ErrorT("app.artwork.m3u8_write_failed", err)
+ 		} else {
+-			fmt.Println("M3U8 playlist saved.")
++			logx.OKT("app.artwork.m3u8_saved")
+ 		}
+ 	}
+ }

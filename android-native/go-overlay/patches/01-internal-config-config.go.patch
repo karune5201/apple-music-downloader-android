@@ -1,0 +1,29 @@
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -1,6 +1,7 @@
+ package config
+ 
+ import (
++	"amdl/internal/logx"
+ 	"errors"
+ 	"fmt"
+ 	"os"
+@@ -164,15 +165,14 @@
+ 			}
+ 			sort.Strings(missing)
+ 			if len(missing) > 0 {
+-				fmt.Printf("Warning: %s is missing fields, using defaults for them.\n", configFile)
+-				fmt.Println("  Missing fields:", strings.Join(missing, ", "))
++				logx.WarnT("app.config.missing_fields", configFile)
++				logx.DetailT("app.config.missing_fields_list", strings.Join(missing, ", "))
+ 			}
+ 		}
+ 	} else if exampleContent != "" && !opts.DisableMissingWarnings {
+-		fmt.Printf("Warning: %s not found, using defaults\n", configFile)
++		logx.WarnT("app.config.not_found", configFile)
+ 	}
+ 
+-
+ 	// Layer 4: Command line flags (mapped to nested keys)
+ 	if opts.FlagSet != nil {
+ 		provider := posflag.ProviderWithFlag(opts.FlagSet, ".", k, func(f *pflag.Flag) (string, any) {

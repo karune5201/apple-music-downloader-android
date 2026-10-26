@@ -1,0 +1,73 @@
+--- a/internal/model/playlist.go
++++ b/internal/model/playlist.go
+@@ -12,6 +12,8 @@
+ 	"github.com/olekukonko/tablewriter"
+ 
+ 	"amdl/internal/amp-api"
++	"amdl/internal/i18n"
++	"amdl/internal/logx"
+ )
+ 
+ type Playlist struct {
+@@ -134,17 +136,19 @@
+ 	}
+ 	//table.AppendBulk(data)
+ 	table.Render()
+-	fmt.Println("Please select from the track options above (multiple options separated by commas, ranges supported, or type 'all' to select all)")
++	logx.PlainT("model.select.hint")
++	// App 靠这个标记判断接下来要读 stdin，提示文案本身是翻译过的
++	logx.Print("##prompt\n")
+ 	cyanColor := color.New(color.FgCyan)
+-	cyanColor.Print("select: ")
++	logx.Print(cyanColor.Sprint(i18n.T("model.select.prompt")))
+ 	reader := bufio.NewReader(os.Stdin)
+ 	input, err := reader.ReadString('\n')
+ 	if err != nil {
+-		fmt.Println(err)
++		logx.WarnT("model.select.read_failed", err)
+ 	}
+ 	input = strings.TrimSpace(input)
+ 	if input == "all" {
+-		fmt.Println("You have selected all options:")
++		logx.DetailT("model.select.all_selected")
+ 		selected = arr
+ 	} else {
+ 		selectedOptions := [][]string{}
+@@ -162,24 +166,24 @@
+ 			if len(opt) == 1 { // Single option
+ 				num, err := strconv.Atoi(opt[0])
+ 				if err != nil {
+-					fmt.Println("Invalid option:", opt[0])
++					logx.WarnT("model.select.invalid_option", opt[0])
+ 					continue
+ 				}
+ 				if num > 0 && num <= len(arr) {
+ 					selected = append(selected, num)
+ 					//args = append(args, urls[num-1])
+ 				} else {
+-					fmt.Println("Option out of range:", opt[0])
++					logx.WarnT("model.select.out_of_range", opt[0])
+ 				}
+ 			} else if len(opt) == 2 { // Range
+ 				start, err1 := strconv.Atoi(opt[0])
+ 				end, err2 := strconv.Atoi(opt[1])
+ 				if err1 != nil || err2 != nil {
+-					fmt.Println("Invalid range:", opt)
++					logx.WarnT("model.select.invalid_range", opt)
+ 					continue
+ 				}
+ 				if start < 1 || end > len(arr) || start > end {
+-					fmt.Println("Range out of range:", opt)
++					logx.WarnT("model.select.range_out_of_range", opt)
+ 					continue
+ 				}
+ 				for i := start; i <= end; i++ {
+@@ -187,7 +191,7 @@
+ 					selected = append(selected, i)
+ 				}
+ 			} else {
+-				fmt.Println("Invalid option:", opt)
++				logx.WarnT("model.select.invalid_option", opt)
+ 			}
+ 		}
+ 	}

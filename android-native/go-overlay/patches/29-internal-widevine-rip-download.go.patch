@@ -1,0 +1,33 @@
+--- a/internal/widevine-rip/download.go
++++ b/internal/widevine-rip/download.go
+@@ -14,6 +14,7 @@
+ 
+ 	"amdl/internal/download"
+ 	"amdl/internal/fsutil"
++	"amdl/internal/logx"
+ )
+ 
+ const (
+@@ -59,16 +60,19 @@
+ 	if _, err := tempFile.Seek(0, 0); err != nil {
+ 		return fmt.Errorf("rewind temp file: %w", err)
+ 	}
+-	fmt.Println("\nDownloaded.")
++	// The progress bar leaves the cursor mid-line; keep the raw break so the
++	// log line below starts clean, then report through the regular funnel.
++	logx.Print("\n")
++	logx.OKT("net.drm.stream_downloaded")
+ 
+ 	if len(stream.Key) == 0 {
+-		fmt.Println("Stream is not encrypted.")
++		logx.DetailT("net.drm.stream_clear")
+ 		return copyToFile(tempFile, outputPath)
+ 	}
+ 	if err := DecryptMP4ToFile(tempFile, stream.Key, outputPath); err != nil {
+ 		return fmt.Errorf("decrypt stream: %w", err)
+ 	}
+-	fmt.Println("Decrypted.")
++	logx.OKT("net.drm.stream_decrypted")
+ 	return nil
+ }
+ 

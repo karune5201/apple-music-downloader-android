@@ -1,0 +1,12 @@
+/build/
+/out/
+/local.properties
+/.gradle/
+app/src/main/jniLibs/arm64-v8a/libamdl.so
+
+# 旧的 keystore 路径（历史遗留），新密钥在 signing/ 并被跟踪
+/.amdl-debug.keystore
+
+# 签名密钥必须被跟踪：换了它，所有已安装版本都要卸载重装
+!signing/
+!signing/**

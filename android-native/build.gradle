@@ -1,0 +1,7 @@
+// Root build file for the native Android front-end.
+//
+// The download core is not built here: it is a cross-compiled Go binary placed
+// in app/src/main/jniLibs/arm64-v8a/libamdl.so by ./build-core.sh.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

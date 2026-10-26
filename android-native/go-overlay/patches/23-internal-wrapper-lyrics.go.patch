@@ -1,0 +1,73 @@
+--- a/internal/wrapper/lyrics.go
++++ b/internal/wrapper/lyrics.go
+@@ -13,41 +13,62 @@
+ var ErrNoLyrics = ErrLyricsNotFound
+ 
+ // Lyrics queries the wrapper-lite /lyrics endpoint for the given adamID, language, and syllable setting.
++//
++// 请求无超时（见包注释），临时故障按 retryRequest 的策略重试；「没有歌词」是正常
++// 结果，不作为可重试的失败。
+ func (c *Client) Lyrics(adamID, language string, syllable bool) (string, error) {
+ 	isSyllable := "0"
+ 	if syllable {
+ 		isSyllable = "1"
+ 	}
+ 	endpoint := "/lyrics?adamId=" + url.QueryEscape(adamID) + "&language=" + url.QueryEscape(language) + "&syllable=" + isSyllable
+-	body, err := c.get(endpoint)
++
++	var lyrics string
++	err := retryRequest(endpointPath(endpoint), c.BaseURL+endpoint, func() error {
++		body, err := c.get(endpoint)
++		if err != nil {
++			return err
++		}
++		data, err := parseLyrics(body, endpoint)
++		if err != nil {
++			return err
++		}
++		lyrics = data.Lyrics
++		return nil
++	})
+ 	if err != nil {
+ 		return "", err
+ 	}
++	return lyrics, nil
++}
+ 
++// parseLyrics 解开 /lyrics 信封，并把 lite-server 表达「没有歌词」的几种写法
++// 统一成 ErrLyricsNotFound。
++func parseLyrics(body []byte, endpoint string) (LyricsData, error) {
+ 	var raw struct {
+-		Code any `json:"code"`
++		Code any    `json:"code"`
+ 		Msg  string `json:"msg"`
+-		Data any `json:"data"`
++		Data any    `json:"data"`
+ 	}
+ 	if err := json.Unmarshal(body, &raw); err == nil {
+ 		if isCode404(raw.Code) || isCode404(raw.Data) {
+-			return "", ErrLyricsNotFound
++			return LyricsData{}, ErrLyricsNotFound
+ 		}
+ 		if dataMap, ok := raw.Data.(map[string]any); ok {
+ 			if isCode404(dataMap["code"]) {
+-				return "", ErrLyricsNotFound
++				return LyricsData{}, ErrLyricsNotFound
+ 			}
+ 		}
+ 	}
+ 
+ 	data, err := decodeEnvelope[LyricsData](body, endpoint)
+ 	if err != nil {
+-		return "", err
++		return LyricsData{}, err
+ 	}
+ 	if data.Code == 404 {
+-		return "", ErrLyricsNotFound
++		return LyricsData{}, ErrLyricsNotFound
+ 	}
+-	return data.Lyrics, nil
++	return data, nil
+ }
+ 
+ // GetLyrics queries wrapper-lite's /lyrics endpoint using baseURL.

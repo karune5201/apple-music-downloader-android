@@ -1,0 +1,568 @@
+--- a/internal/app/rip.go
++++ b/internal/app/rip.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"amdl/internal/amp-api"
+ 	fairplayrip "amdl/internal/fairplay-rip"
++	"amdl/internal/logx"
+ 	"amdl/internal/media/alacfix"
+ 	defrag "amdl/internal/media/defrag"
+ 	"amdl/internal/media/lyrics"
+@@ -16,6 +17,7 @@
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
++	"time"
+ )
+ 
+ type lyricsResult struct {
+@@ -25,19 +27,20 @@
+ 
+ func (r *Runner) ripTrack(track *model.Track, token string, mediaUserToken string) {
+ 	var err error
++	started := time.Now()
+ 	r.State.Counter.Total++
+-	fmt.Printf("Track %d of %d: %s\n", track.TaskNum, track.TaskTotal, track.Type)
++	logx.StepT("app.rip.track_banner", track.TaskNum, track.TaskTotal, track.Type)
+ 
+ 	//mv dl dev
+ 	if track.Type == "music-videos" {
+ 		if r.Config.General.LiteServer == "" {
+-			fmt.Println("lite-server is not set, skip MV dl")
++			logx.WarnT("app.rip.mv_no_lite_server")
+ 			r.State.Counter.Success++
+ 			return
+ 		}
+ 		err := r.mvDownloader(track.ID, track.SaveDir, token, track.Storefront, track)
+ 		if err != nil {
+-			fmt.Println("\u26A0 Failed to dl MV:", err)
++			logx.ErrorT("app.rip.mv_download_failed", err)
+ 			r.State.Counter.Error++
+ 			return
+ 		}
+@@ -51,11 +54,11 @@
+ 	}
+ 	if track.WebM3u8 == "" && !needDlAacLc {
+ 		if r.Flags.Atmos {
+-			fmt.Println("Unavailable")
++			logx.WarnT("app.rip.unavailable")
+ 			r.State.Counter.Unavailable++
+ 			return
+ 		}
+-		fmt.Println("Unavailable, trying to dl aac-lc")
++		logx.WarnT("app.rip.unavailable_try_aac")
+ 		needDlAacLc = true
+ 	}
+ 	needCheck := false
+@@ -82,13 +85,16 @@
+ 		} else {
+ 			_, Quality, err = r.extractMedia(track.M3u8, true)
+ 			if err != nil {
+-				fmt.Println("Failed to extract quality from manifest.\n", err)
++				logx.ErrorT("app.rip.quality_extract_failed", err)
+ 				r.State.Counter.Error++
+ 				return
+ 			}
+ 		}
+ 	}
+ 	track.Quality = Quality
++	logx.DebugT("app.rip.track_params", logx.KV("quality", Quality), logx.KV("codec", track.Codec))
++	logx.DebugT("app.rip.track_dir", logx.KV("dir", track.SaveDir))
++	logx.DebugT("app.rip.track_manifest", logx.KV("m3u8", track.M3u8))
+ 
+ 	stringsToJoin := []string{}
+ 	if track.Resp.Attributes.IsAppleDigitalMaster {
+@@ -119,7 +125,7 @@
+ 		"{Tag}", Tag_string,
+ 		"{Codec}", track.Codec,
+ 	).Replace(r.Config.Paths.SongFile)
+-	fmt.Println(songName)
++	logx.DetailT("app.rip.song_file", songName)
+ 	filename := fmt.Sprintf("%s.m4a", forbiddenNames.ReplaceAllString(songName, "_"))
+ 	track.SaveName = filename
+ 	trackPath := filepath.Join(track.SaveDir, track.SaveName)
+@@ -138,10 +144,10 @@
+ 	// Existence check now considers converted output (if original was deleted)
+ 	existsOriginal, err := fileExists(trackPath)
+ 	if err != nil {
+-		fmt.Println("Failed to check if track exists.")
++		logx.WarnT("app.rip.exists_check_failed", err)
+ 	}
+ 	if existsOriginal {
+-		fmt.Println("Track already exists locally.")
++		logx.OKT("app.rip.exists")
+ 		r.State.Counter.Success++
+ 		r.State.OKDict[track.PreID] = append(r.State.OKDict[track.PreID], track.TaskNum)
+ 
+@@ -161,7 +167,7 @@
+ 	if considerConverted {
+ 		existsConverted, err2 := fileExists(convertedPath)
+ 		if err2 == nil && existsConverted {
+-			fmt.Println("Converted track already exists locally.")
++			logx.OKT("app.rip.exists_converted")
+ 			r.State.Counter.Success++
+ 			r.State.OKDict[track.PreID] = append(r.State.OKDict[track.PreID], track.TaskNum)
+ 
+@@ -183,7 +189,7 @@
+ 	//提前获取到的播放列表下track所在的专辑信息
+ 	if track.PreType == "playlists" && r.Config.Metadata.Tags.UseSongInfoForPlaylist {
+ 		if err := track.GetAlbumData(token); err != nil {
+-			fmt.Println("Failed to get album data for playlist track:", err)
++			logx.ErrorT("app.rip.album_data_failed", err)
+ 			r.State.Counter.Error++
+ 			return
+ 		}
+@@ -208,15 +214,15 @@
+ 		lyricsCh = nil
+ 		if res.err != nil {
+ 			if errors.Is(res.err, lyrics.ErrLyricsNotFound) {
+-				fmt.Println("No lyrics available for this song")
++				logx.WarnT("app.rip.lyrics_unavailable")
+ 			} else {
+-				fmt.Println(res.err)
++				logx.WarnT("app.rip.lyrics_failed", res.err)
+ 			}
+ 			return
+ 		}
+ 		if r.Config.Metadata.Lyrics.SaveFile && res.lrc != "" {
+ 			if err := r.writeLyrics(track.SaveDir, lrcFilename, res.lrc); err != nil {
+-				fmt.Printf("Failed to write lyrics")
++				logx.WarnT("app.rip.lyrics_write_failed", err)
+ 			}
+ 		}
+ 		if r.Config.Metadata.Lyrics.Embed && res.lrc != "" {
+@@ -227,13 +233,13 @@
+ 
+ 	if needDlAacLc {
+ 		if r.Config.General.LiteServer == "" {
+-			fmt.Println("aac-lc download requires lite-server, but it is not configured")
++			logx.ErrorT("app.rip.aac_lc_need_lite_server")
+ 			r.State.Counter.Error++
+ 			return
+ 		}
+ 		err := runv5.DownloadSong(context.Background(), track.ID, trackPath, r.Config.General.LiteServer)
+ 		if err != nil {
+-			fmt.Println("Failed to dl aac-lc via lite-server:", err)
++			logx.ErrorT("app.rip.aac_lc_download_failed", err)
+ 			if err.Error() == "Unavailable" {
+ 				r.State.Counter.Unavailable++
+ 				return
+@@ -244,7 +250,7 @@
+ 	} else {
+ 		trackM3u8Url, _, err := r.extractMedia(track.M3u8, false)
+ 		if err != nil {
+-			fmt.Println("\u26A0 Failed to extract info from manifest:", err)
++			logx.ErrorT("app.rip.manifest_extract_failed", err)
+ 			r.State.Counter.Unavailable++
+ 			return
+ 		}
+@@ -252,7 +258,7 @@
+ 		//wrapper-lite 模板解密
+ 		err = fairplayrip.Run(track.ID, trackM3u8Url, trackPath, r.Config)
+ 		if err != nil {
+-			fmt.Println("Failed to run v4:", err)
++			logx.ErrorT("app.rip.fairplay_failed", err)
+ 			r.State.Counter.Error++
+ 			return
+ 		}
+@@ -266,7 +272,7 @@
+ 		if (strings.Contains(track.PreID, "pl.") || strings.Contains(track.PreID, "ra.")) && r.Config.Metadata.Artwork.DlForPlaylist {
+ 			track.CoverPath, err = r.writeCover(track.SaveDir, track.ID, track.Resp.Attributes.Artwork.URL)
+ 			if err != nil {
+-				fmt.Println("Failed to write cover.")
++				logx.WarnT("app.rip.cover_write_failed", err)
+ 			} else {
+ 				removeCoverAfterWrite = true
+ 			}
+@@ -274,7 +280,7 @@
+ 	}
+ 
+ 	if err := defrag.DefragmentMP4(trackPath); err != nil {
+-		fmt.Printf("Defragment failed: %v\n", err)
++		logx.ErrorT("app.rip.defrag_failed", err)
+ 		r.State.Counter.Error++
+ 		return
+ 	}
+@@ -283,7 +289,7 @@
+ 	if r.Config.Media.ALACFix {
+ 		err = alacfix.Run(track.SavePath, false)
+ 		if err != nil {
+-			fmt.Println("\u26A0 Failed to fix ALAC:", err)
++			logx.ErrorT("app.rip.alac_fix_failed", err)
+ 			r.State.Counter.Unavailable++
+ 			return
+ 		}
+@@ -291,18 +297,24 @@
+ 
+ 	err = r.writeMP4Tags(track, lrc)
+ 	if err != nil {
+-		fmt.Println("\u26A0 Failed to write tags in media:", err)
++		logx.ErrorT("app.rip.tags_write_failed", err)
+ 		r.State.Counter.Unavailable++
+ 		return
+ 	}
+ 	if removeCoverAfterWrite {
+ 		if err := os.Remove(track.CoverPath); err != nil {
+-			fmt.Printf("Error deleting file: %s\n", track.CoverPath)
++			logx.ErrorT("app.rip.cover_delete_failed", track.CoverPath)
+ 			r.State.Counter.Error++
+ 			return
+ 		}
+ 	}
+ 
++	var writtenBytes int64
++	if st, statErr := os.Stat(trackPath); statErr == nil {
++		writtenBytes = st.Size()
++	}
++	logx.DetailT("app.rip.track_written", track.SaveName, logx.Bytes(writtenBytes), logx.Since(started))
++
+ 	// CONVERSION FEATURE hook
+ 	r.convertIfNeeded(track)
+ 
+@@ -335,7 +347,7 @@
+ 	if err != nil {
+ 		return err
+ 	}
+-	fmt.Println(" -", station.Type)
++	logx.DetailT("app.rip.station_type", station.Type)
+ 	meta := station.Resp
+ 
+ 	var Codec string
+@@ -347,6 +359,7 @@
+ 		Codec = "ALAC"
+ 	}
+ 	station.Codec = Codec
++	logx.DebugT("app.rip.codec", logx.KV("codec", Codec))
+ 	var singerFoldername string
+ 	if r.Config.Paths.ArtistFolder != "" {
+ 		singerFoldername = strings.NewReplacer(
+@@ -358,7 +371,7 @@
+ 			singerFoldername = strings.ReplaceAll(singerFoldername, ".", "")
+ 		}
+ 		singerFoldername = strings.TrimSpace(singerFoldername)
+-		fmt.Println(singerFoldername)
++		logx.DetailT("app.rip.artist_folder", singerFoldername)
+ 	}
+ 	singerFolder := filepath.Join(r.Config.Paths.Alac, forbiddenNames.ReplaceAllString(singerFoldername, "_"))
+ 	if r.Flags.Atmos {
+@@ -385,11 +398,11 @@
+ 		return err
+ 	}
+ 	station.SaveName = playlistFolder
+-	fmt.Println(playlistFolder)
++	logx.DetailT("app.rip.playlist_folder", playlistFolder)
+ 
+ 	covPath, err := r.writeCover(playlistFolderPath, "cover", meta.Data[0].Attributes.Artwork.URL)
+ 	if err != nil {
+-		fmt.Println("Failed to write cover.")
++		logx.WarnT("app.rip.cover_write_failed", err)
+ 	}
+ 	station.CoverPath = covPath
+ 
+@@ -413,14 +426,14 @@
+ 			"{Tag}", "",
+ 			"{Codec}", "AAC",
+ 		).Replace(r.Config.Paths.SongFile)
+-		fmt.Println(songName)
++		logx.DetailT("app.rip.song_file", songName)
+ 		trackPath := filepath.Join(playlistFolderPath, fmt.Sprintf("%s.m4a", forbiddenNames.ReplaceAllString(songName, "_")))
+ 		exists, _ := fileExists(trackPath)
+ 		if exists {
+ 			r.State.Counter.Success++
+ 			r.State.OKDict[station.ID] = append(r.State.OKDict[station.ID], 1)
+ 
+-			fmt.Println("Radio already exists locally.")
++			logx.OKT("app.rip.station_exists")
+ 			r.State.AddedTracks = append(r.State.AddedTracks, AddedTrack{
+ 				Path:     trackPath,
+ 				Artist:   "Apple Music Station",
+@@ -433,34 +446,34 @@
+ 		}
+ 		assetsUrl, serverUrl, err := ampapi.GetStationAssetsUrlAndServerUrl(station.ID, mediaUserToken, token)
+ 		if err != nil {
+-			fmt.Println("Failed to get station assets url.", err)
++			logx.ErrorT("app.rip.station_assets_failed", err)
+ 			r.State.Counter.Error++
+ 			return err
+ 		}
+ 		creds := widevinerip.Credentials{AuthToken: token, MediaUserToken: mediaUserToken}
+ 		trackM3U8, err := widevinerip.ResolveStationVariantPlaylist(assetsUrl, creds)
+ 		if err != nil {
+-			fmt.Println("Failed to resolve station variant playlist.", err)
++			logx.ErrorT("app.rip.station_playlist_failed", err)
+ 			r.State.Counter.Error++
+ 			return err
+ 		}
+ 		ctx := context.Background()
+ 		stream, err := widevinerip.FetchStationStream(ctx, station.ID, trackM3U8, creds, serverUrl)
+ 		if err != nil {
+-			fmt.Println("Failed to get station stream decryption key.", err)
++			logx.ErrorT("app.rip.station_key_failed", err)
+ 			r.State.Counter.Error++
+ 			return err
+ 		}
+ 		err = widevinerip.DownloadStream(ctx, stream, trackPath)
+ 		if err != nil {
+ 			_ = os.Remove(trackPath)
+-			fmt.Println("Failed to download station stream.", err)
++			logx.ErrorT("app.rip.station_download_failed", err)
+ 			r.State.Counter.Error++
+ 			return err
+ 		}
+ 		if err := defrag.DefragmentMP4(trackPath); err != nil {
+ 			_ = os.Remove(trackPath)
+-			fmt.Printf("Defragment failed: %v\n", err)
++			logx.ErrorT("app.rip.defrag_failed", err)
+ 			r.State.Counter.Error++
+ 			return err
+ 		}
+@@ -481,7 +494,7 @@
+ 			cover, err := os.ReadFile(station.CoverPath)
+ 			if err != nil {
+ 				_ = os.Remove(trackPath)
+-				fmt.Println("Failed to read station cover.", err)
++				logx.ErrorT("app.rip.station_cover_read_failed", err)
+ 				r.State.Counter.Error++
+ 				return err
+ 			}
+@@ -493,7 +506,7 @@
+ 		mp4, err := mp4tag.Open(trackPath)
+ 		if err != nil {
+ 			_ = os.Remove(trackPath)
+-			fmt.Println("Failed to open station stream for tagging.", err)
++			logx.ErrorT("app.rip.station_tag_open_failed", err)
+ 			r.State.Counter.Error++
+ 			return err
+ 		}
+@@ -501,7 +514,7 @@
+ 		_ = mp4.Close()
+ 		if err != nil {
+ 			_ = os.Remove(trackPath)
+-			fmt.Println("Failed to embed station tags.", err)
++			logx.ErrorT("app.rip.station_tag_write_failed", err)
+ 			r.State.Counter.Error++
+ 			return err
+ 		}
+@@ -514,6 +527,9 @@
+ 		})
+ 		r.State.Counter.Success++
+ 		r.State.OKDict[station.ID] = append(r.State.OKDict[station.ID], 1)
++		if st, statErr := os.Stat(trackPath); statErr == nil {
++			logx.DetailT("app.rip.station_written", trackPath, logx.Bytes(st.Size()))
++		}
+ 		r.saveM3UPlaylist(playlistFolderPath, playlistFolder, startIdx)
+ 		return nil
+ 	}
+@@ -551,22 +567,22 @@
+ 	album := model.NewAlbum(storefront, albumId)
+ 	err := album.GetResp(token, r.Config.General.Language)
+ 	if err != nil {
+-		fmt.Println("Failed to get album response.")
++		logx.ErrorT("app.rip.album_response_failed", err)
+ 		return err
+ 	}
+ 	meta := album.Resp
+ 	if r.Flags.Debug {
+-		fmt.Println(meta.Data[0].Attributes.ArtistName)
+-		fmt.Println(meta.Data[0].Attributes.Name)
++		logx.Println(meta.Data[0].Attributes.ArtistName)
++		logx.Println(meta.Data[0].Attributes.Name)
+ 
+ 		for trackNum, track := range meta.Data[0].Relationships.Tracks.Data {
+ 			trackNum++
+-			fmt.Printf("\nTrack %d of %d:\n", trackNum, len(meta.Data[0].Relationships.Tracks.Data))
+-			fmt.Printf("%02d. %s\n", trackNum, track.Attributes.Name)
++			logx.StepT("app.rip.debug_track", trackNum, len(meta.Data[0].Relationships.Tracks.Data))
++			logx.Printf("%02d. %s\n", trackNum, track.Attributes.Name)
+ 
+ 			manifest, err := ampapi.GetSongResp(storefront, track.ID, album.Language, token)
+ 			if err != nil {
+-				fmt.Printf("Failed to get manifest for track %d: %v\n", trackNum, err)
++				logx.ErrorT("app.rip.debug_manifest_failed", trackNum, err)
+ 				continue
+ 			}
+ 
+@@ -585,13 +601,13 @@
+ 				if err == nil && strings.HasSuffix(fullM3u8Url, ".m3u8") {
+ 					m3u8Url = fullM3u8Url
+ 				} else {
+-					fmt.Println("Failed to get best quality m3u8 from lite-server, will use m3u8 from Web API")
++					logx.WarnT("app.rip.m3u8_fallback")
+ 				}
+ 			}
+ 
+ 			_, _, err = r.extractMedia(m3u8Url, true)
+ 			if err != nil {
+-				fmt.Printf("Failed to extract quality info for track %d: %v\n", trackNum, err)
++				logx.ErrorT("app.rip.debug_quality_failed", trackNum, err)
+ 				continue
+ 			}
+ 		}
+@@ -606,6 +622,7 @@
+ 		Codec = "ALAC"
+ 	}
+ 	album.Codec = Codec
++	logx.DebugT("app.rip.codec", logx.KV("codec", Codec))
+ 	var singerFoldername string
+ 	if r.Config.Paths.ArtistFolder != "" {
+ 		if len(meta.Data[0].Relationships.Artists.Data) > 0 {
+@@ -625,7 +642,7 @@
+ 			singerFoldername = strings.ReplaceAll(singerFoldername, ".", "")
+ 		}
+ 		singerFoldername = strings.TrimSpace(singerFoldername)
+-		fmt.Println(singerFoldername)
++		logx.DetailT("app.rip.artist_folder", singerFoldername)
+ 	}
+ 	singerFolder := filepath.Join(r.Config.Paths.Alac, forbiddenNames.ReplaceAllString(singerFoldername, "_"))
+ 	if r.Flags.Atmos {
+@@ -647,7 +664,7 @@
+ 		} else {
+ 			manifest1, err := ampapi.GetSongResp(storefront, meta.Data[0].Relationships.Tracks.Data[0].ID, album.Language, token)
+ 			if err != nil {
+-				fmt.Println("Failed to get manifest.\n", err)
++				logx.ErrorT("app.rip.manifest_get_failed", err)
+ 			} else {
+ 				if manifest1.Data[0].Attributes.ExtendedAssetUrls.EnhancedHls == "" {
+ 					Codec = "AAC"
+@@ -669,7 +686,7 @@
+ 					}
+ 					_, Quality, err = r.extractMedia(manifest1.Data[0].Attributes.ExtendedAssetUrls.EnhancedHls, true)
+ 					if err != nil {
+-						fmt.Println("Failed to extract quality from manifest.\n", err)
++						logx.ErrorT("app.rip.quality_extract_failed", err)
+ 					}
+ 				}
+ 			}
+@@ -712,18 +729,18 @@
+ 		return err
+ 	}
+ 	album.SaveName = albumFolderName
+-	fmt.Println(albumFolderName)
++	logx.DetailT("app.rip.album_folder", albumFolderName)
+ 	if r.Config.Metadata.Artwork.SaveArtist && len(meta.Data[0].Relationships.Artists.Data) > 0 {
+ 		if meta.Data[0].Relationships.Artists.Data[0].Attributes.Artwork.Url != "" {
+ 			_, err = r.writeCover(singerFolder, "folder", meta.Data[0].Relationships.Artists.Data[0].Attributes.Artwork.Url)
+ 			if err != nil {
+-				fmt.Println("Failed to write artist cover.")
++				logx.WarnT("app.rip.artist_cover_failed", err)
+ 			}
+ 		}
+ 	}
+ 	covPath, err := r.writeCover(albumFolderPath, "cover", meta.Data[0].Attributes.Artwork.URL)
+ 	if err != nil {
+-		fmt.Println("Failed to write cover.")
++		logx.WarnT("app.rip.cover_write_failed", err)
+ 	}
+ 	if r.Config.Metadata.Artwork.SaveAnimated {
+ 		r.saveAnimatedArtwork(
+@@ -779,22 +796,22 @@
+ 	playlist := model.NewPlaylist(storefront, playlistId)
+ 	err := playlist.GetResp(token, r.Config.General.Language)
+ 	if err != nil {
+-		fmt.Println("Failed to get playlist response.")
++		logx.ErrorT("app.rip.playlist_response_failed", err)
+ 		return err
+ 	}
+ 	meta := playlist.Resp
+ 	if r.Flags.Debug {
+-		fmt.Println(meta.Data[0].Attributes.ArtistName)
+-		fmt.Println(meta.Data[0].Attributes.Name)
++		logx.Println(meta.Data[0].Attributes.ArtistName)
++		logx.Println(meta.Data[0].Attributes.Name)
+ 
+ 		for trackNum, track := range meta.Data[0].Relationships.Tracks.Data {
+ 			trackNum++
+-			fmt.Printf("\nTrack %d of %d:\n", trackNum, len(meta.Data[0].Relationships.Tracks.Data))
+-			fmt.Printf("%02d. %s\n", trackNum, track.Attributes.Name)
++			logx.StepT("app.rip.debug_track", trackNum, len(meta.Data[0].Relationships.Tracks.Data))
++			logx.Printf("%02d. %s\n", trackNum, track.Attributes.Name)
+ 
+ 			manifest, err := ampapi.GetSongResp(storefront, track.ID, playlist.Language, token)
+ 			if err != nil {
+-				fmt.Printf("Failed to get manifest for track %d: %v\n", trackNum, err)
++				logx.ErrorT("app.rip.debug_manifest_failed", trackNum, err)
+ 				continue
+ 			}
+ 
+@@ -813,13 +830,13 @@
+ 				if err == nil && strings.HasSuffix(fullM3u8Url, ".m3u8") {
+ 					m3u8Url = fullM3u8Url
+ 				} else {
+-					fmt.Println("Failed to get best quality m3u8 from lite-server, will use m3u8 from Web API")
++					logx.WarnT("app.rip.m3u8_fallback")
+ 				}
+ 			}
+ 
+ 			_, _, err = r.extractMedia(m3u8Url, true)
+ 			if err != nil {
+-				fmt.Printf("Failed to extract quality info for track %d: %v\n", trackNum, err)
++				logx.ErrorT("app.rip.debug_quality_failed", trackNum, err)
+ 				continue
+ 			}
+ 		}
+@@ -834,6 +851,7 @@
+ 		Codec = "ALAC"
+ 	}
+ 	playlist.Codec = Codec
++	logx.DebugT("app.rip.codec", logx.KV("codec", Codec))
+ 	var singerFoldername string
+ 	if r.Config.Paths.ArtistFolder != "" {
+ 		singerFoldername = strings.NewReplacer(
+@@ -845,7 +863,7 @@
+ 			singerFoldername = strings.ReplaceAll(singerFoldername, ".", "")
+ 		}
+ 		singerFoldername = strings.TrimSpace(singerFoldername)
+-		fmt.Println(singerFoldername)
++		logx.DetailT("app.rip.artist_folder", singerFoldername)
+ 	}
+ 	singerFolder := filepath.Join(r.Config.Paths.Alac, forbiddenNames.ReplaceAllString(singerFoldername, "_"))
+ 	if r.Flags.Atmos {
+@@ -868,7 +886,7 @@
+ 		} else {
+ 			manifest1, err := ampapi.GetSongResp(storefront, meta.Data[0].Relationships.Tracks.Data[0].ID, playlist.Language, token)
+ 			if err != nil {
+-				fmt.Println("Failed to get manifest.\n", err)
++				logx.ErrorT("app.rip.manifest_get_failed", err)
+ 			} else {
+ 				if manifest1.Data[0].Attributes.ExtendedAssetUrls.EnhancedHls == "" {
+ 					Codec = "AAC"
+@@ -890,7 +908,7 @@
+ 					}
+ 					_, Quality, err = r.extractMedia(manifest1.Data[0].Attributes.ExtendedAssetUrls.EnhancedHls, true)
+ 					if err != nil {
+-						fmt.Println("Failed to extract quality from manifest.\n", err)
++						logx.ErrorT("app.rip.quality_extract_failed", err)
+ 					}
+ 				}
+ 			}
+@@ -926,10 +944,10 @@
+ 		return err
+ 	}
+ 	playlist.SaveName = playlistFolder
+-	fmt.Println(playlistFolder)
++	logx.DetailT("app.rip.playlist_folder", playlistFolder)
+ 	covPath, err := r.writeCover(playlistFolderPath, "cover", meta.Data[0].Attributes.Artwork.URL)
+ 	if err != nil {
+-		fmt.Println("Failed to write cover.")
++		logx.WarnT("app.rip.cover_write_failed", err)
+ 	}
+ 
+ 	for i := range playlist.Tracks {
+@@ -977,7 +995,7 @@
+ 	// Get song info to find album ID
+ 	manifest, err := ampapi.GetSongResp(storefront, songId, r.Config.General.Language, token)
+ 	if err != nil {
+-		fmt.Println("Failed to get song response.")
++		logx.ErrorT("app.rip.song_response_failed", err)
+ 		return err
+ 	}
+ 
+@@ -987,7 +1005,7 @@
+ 	// Use album approach but only download the specific song
+ 	err = r.ripAlbum(albumId, token, storefront, mediaUserToken, songId)
+ 	if err != nil {
+-		fmt.Println("Failed to rip song:", err)
++		logx.ErrorT("app.rip.song_rip_failed", err)
+ 		return err
+ 	}
+ 

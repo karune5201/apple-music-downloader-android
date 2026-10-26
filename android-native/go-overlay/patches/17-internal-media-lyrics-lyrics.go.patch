@@ -1,0 +1,19 @@
+--- a/internal/media/lyrics/lyrics.go
++++ b/internal/media/lyrics/lyrics.go
+@@ -6,6 +6,7 @@
+ 	"strconv"
+ 	"strings"
+ 
++	"amdl/internal/logx"
+ 	"amdl/internal/wrapper"
+ 	"github.com/beevik/etree"
+ )
+@@ -41,7 +42,7 @@
+ 			return "", err
+ 		}
+ 		if !errors.Is(err, wrapper.ErrNotConfigured) {
+-			fmt.Println("Error connecting to lite-server:", err)
++			logx.WarnT("media.lyrics.lite_failed", err)
+ 		}
+ 		return "", err
+ 	}

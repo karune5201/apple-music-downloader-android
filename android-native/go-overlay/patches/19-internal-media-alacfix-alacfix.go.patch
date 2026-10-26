@@ -1,0 +1,186 @@
+--- a/internal/media/alacfix/alacfix.go
++++ b/internal/media/alacfix/alacfix.go
+@@ -10,6 +10,8 @@
+ 	"path/filepath"
+ 	"runtime"
+ 	"sync"
++
++	"amdl/internal/logx"
+ )
+ 
+ // alacfix.go — Patch malformed ALAC packets in an .m4a/.mp4 file in place.
+@@ -715,7 +717,11 @@
+ type Result struct {
+ 	TracksCount int
+ 	Patched     int
+-	Report      []BadPacket
++	// Unrepaired counts packets that looked damaged but could not be fixed:
++	// the element boundary was unparseable, or the 3-bit rewrite fell outside
++	// the packet. A non-zero value means the file is still suspect.
++	Unrepaired int
++	Report     []BadPacket
+ }
+ 
+ // scanWindow caps how much packet data is held in memory at once. Only the
+@@ -802,8 +808,9 @@
+ 
+ // scanTrack reads the track's packets window by window and appends every
+ // packet that needs patching to res. Back-to-back packets are read together
+-// so each window costs a single read.
+-func scanTrack(f *os.File, td *trackData, res *Result) error {
++// so each window costs a single read. When verbose is set, every damaged or
++// unparseable packet is reported; the caller prints the per-track summary.
++func scanTrack(f *os.File, td *trackData, res *Result, verbose bool) error {
+ 	locs := td.locs
+ 	var buf []byte
+ 	for start := 0; start < len(locs); {
+@@ -827,7 +834,12 @@
+ 		bodyEnds := scanBodyEnds(window, base, locs[start:end], &td.params)
+ 		for i, bodyEnd := range bodyEnds {
+ 			loc := locs[start+i]
++			idx := start + i
+ 			if bodyEnd < 0 {
++				res.Unrepaired++
++				if verbose {
++					logx.WarnT("media.alacfix.packet_unparsable", idx)
++				}
+ 				continue
+ 			}
+ 			if bodyEnd == loc.size*8 {
+@@ -842,15 +854,21 @@
+ 				}
+ 			}
+ 			// The window is scratch space; applyPatches writes the file.
+-			if patchInPlace(window, off, loc.size, bodyEnd) {
+-				res.Patched++
+-				res.Report = append(res.Report, BadPacket{
+-					TrackID:    td.trackID,
+-					Idx:        start + i,
+-					Off:        loc.offset,
+-					Size:       loc.size,
+-					BodyEndBit: bodyEnd,
+-				})
++			if !patchInPlace(window, off, loc.size, bodyEnd) {
++				res.Unrepaired++
++				continue
++			}
++			res.Patched++
++			res.Report = append(res.Report, BadPacket{
++				TrackID:    td.trackID,
++				Idx:        idx,
++				Off:        loc.offset,
++				Size:       loc.size,
++				BodyEndBit: bodyEnd,
++			})
++			if verbose {
++				logx.WarnT("media.alacfix.packet_damaged",
++					td.trackID, idx, loc.offset, logx.Bytes(int64(loc.size)), bodyEnd)
+ 			}
+ 		}
+ 		start = end
+@@ -939,18 +957,31 @@
+ 		return Result{}, f.Close()
+ 	}
+ 
++	// 容器走查结果属于 --verbose 级别细节，只有全局打开了 verbose 才出现。
++	logx.DebugT("media.alacfix.moov_ok", logx.Bytes(int64(len(moov))), len(tracks))
++
+ 	res := Result{TracksCount: len(tracks)}
+ 
+ 	for i := range tracks {
+ 		td := &tracks[i]
+ 		if verbose {
+-			fmt.Printf("Track #%d: %d packets, max_samples_per_frame=%d sample_size=%d channels=%d\n",
+-				td.trackID, len(td.locs), td.params.maxSamplesPerFrame, td.params.sampleSize, td.params.channels)
++			logx.DetailT("media.alacfix.track_params", td.trackID, len(td.locs),
++				td.params.maxSamplesPerFrame, td.params.sampleSize, td.params.channels)
+ 		}
+-		if err := scanTrack(f, td, &res); err != nil {
++		patchedBefore, unrepairedBefore := res.Patched, res.Unrepaired
++		if err := scanTrack(f, td, &res, verbose); err != nil {
+ 			_ = f.Close()
+ 			return res, err
+ 		}
++		if verbose {
++			// 每条轨道一行结论：全部完好是正常结果，有异常包要给警告。
++			damaged := (res.Patched - patchedBefore) + (res.Unrepaired - unrepairedBefore)
++			if damaged > 0 {
++				logx.WarnT("media.alacfix.track_damaged", td.trackID, damaged)
++			} else {
++				logx.OKT("media.alacfix.track_clean", td.trackID)
++			}
++		}
+ 	}
+ 	// Close before writing so the file can be reopened for writing on Windows.
+ 	if err := f.Close(); err != nil {
+@@ -962,10 +993,9 @@
+ 			return res, err
+ 		}
+ 		if verbose {
+-			fmt.Printf("Patched %d packet(s).\n", res.Patched)
+ 			for _, r := range res.Report {
+-				fmt.Printf("  track #%d packet #%d  file_offset=0x%x  size=%d  body_ends_at_bit=%d  tail_overwritten=[%d..%d)\n",
+-					r.TrackID, r.Idx, r.Off, r.Size, r.BodyEndBit, r.BodyEndBit, r.Size*8)
++				logx.DetailT("media.alacfix.patch_row",
++					r.TrackID, r.Idx, r.BodyEndBit, r.BodyEndBit, r.Size*8)
+ 			}
+ 		}
+ 	}
+@@ -977,31 +1007,41 @@
+ 	return fixFile(path, force, false, outPath...)
+ }
+ 
+-// Run scans and patches malformed ALAC packets in an audio file.
+-// If repairs were made, it prints a single line with the count of affected packets repaired.
+-// If no repairs were needed, it briefly reminds that the audio has integrity.
+-func Run(path string, force bool, outPath ...string) error {
+-	res, err := fixFile(path, force, false, outPath...)
++// run is the shared body of Run and RunVerbose: fix the file, then report the
++// outcome in one line. verbose only adds the per-track and per-packet details.
++func run(path string, force, verbose bool, outPath ...string) error {
++	res, err := fixFile(path, force, verbose, outPath...)
+ 	if err != nil {
+ 		return err
+ 	}
+ 	if res.TracksCount == 0 {
+ 		return nil
+ 	}
+-	if res.Patched > 0 {
+-		packetWord := "packets"
+-		if res.Patched == 1 {
+-			packetWord = "packet"
+-		}
+-		fmt.Printf("Repaired %d affected %s\n", res.Patched, packetWord)
+-	} else {
+-		fmt.Println("Audio integrity intact")
++	if res.Unrepaired > 0 {
++		logx.ErrorT("media.alacfix.unrepairable", res.Unrepaired)
++	}
++	switch {
++	case res.Patched > 0:
++		logx.OKT("media.alacfix.repaired", res.Patched)
++	case res.Unrepaired > 0:
++		// 上面已经报过错误，这里不再补一句"完好"
++	default:
++		logx.OKT("media.alacfix.intact")
+ 	}
+ 	return nil
+ }
+ 
+-// RunVerbose scans and patches malformed ALAC packets and outputs detailed debug logs.
++// Run scans and patches malformed ALAC packets in an audio file.
++// If repairs were made, it prints a single line with the count of affected packets repaired.
++// If no repairs were needed, it briefly reminds that the audio has integrity.
++func Run(path string, force bool, outPath ...string) error {
++	return run(path, force, false, outPath...)
++}
++
++// RunVerbose scans and patches malformed ALAC packets and prints the per-track
++// and per-packet details. The details go through Detail/Warn, not Debug, so
++// they show up even when --verbose was not enabled globally (cmd/alacfix only
++// forwards -v to this function).
+ func RunVerbose(path string, force bool, outPath ...string) error {
+-	_, err := fixFile(path, force, true, outPath...)
+-	return err
++	return run(path, force, true, outPath...)
+ }

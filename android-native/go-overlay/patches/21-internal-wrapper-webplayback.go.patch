@@ -1,0 +1,19 @@
+--- a/internal/wrapper/webplayback.go
++++ b/internal/wrapper/webplayback.go
+@@ -6,13 +6,11 @@
+ )
+ 
+ // Webplayback queries the wrapper-lite /webplayback endpoint for the given adamID and returns the m3u8 URL.
++//
++// 请求无超时（见包注释），临时故障有界重试。
+ func (c *Client) Webplayback(adamID string) (string, error) {
+ 	endpoint := "/webplayback?adamId=" + url.QueryEscape(adamID)
+-	body, err := c.get(endpoint)
+-	if err != nil {
+-		return "", err
+-	}
+-	data, err := decodeEnvelope[WebplaybackData](body, endpoint)
++	data, err := getEnvelope[WebplaybackData](c, endpoint)
+ 	if err != nil {
+ 		return "", err
+ 	}

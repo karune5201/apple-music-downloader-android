@@ -1,0 +1,12 @@
+--- a/internal/config/structs.go
++++ b/internal/config/structs.go
+@@ -22,6 +22,9 @@
+ 	LiteServer         string `koanf:"lite-server"`
+ 	MaxMemoryLimit     int    `koanf:"max-memory-limit"`
+ 	ExitOnError        bool   `koanf:"exit-on-error"`
++	// UILanguage 是界面与日志语言（zh / ja / en，默认 zh）。
++	// App 设置面板与 --ui-language 都写这里，核心与 App 共用。
++	UILanguage string `koanf:"ui-language"`
+ }
+ 
+ // MediaConfig holds audio quality, m3u8 detection mode, and video settings.

@@ -1,0 +1,24 @@
+--- a/internal/wrapper/key.go
++++ b/internal/wrapper/key.go
+@@ -7,6 +7,8 @@
+ 
+ // Key queries the wrapper-lite /key endpoint for adamID and uri, returning the KeyTemplate.
+ // If adamID is "0" and uri matches PrefetchKey, the embedded prefetch template is returned without network IO.
++//
++// 请求无超时（见包注释），临时故障有界重试。
+ func (c *Client) Key(adamID, uri string) (*KeyTemplate, error) {
+ 	if adamID == "0" && uri == PrefetchKey {
+ 		var tmpl KeyTemplate
+@@ -17,11 +19,7 @@
+ 	}
+ 
+ 	endpoint := "/key?adamId=" + url.QueryEscape(adamID) + "&uri=" + url.QueryEscape(uri)
+-	body, err := c.get(endpoint)
+-	if err != nil {
+-		return nil, err
+-	}
+-	data, err := decodeEnvelope[KeyTemplate](body, endpoint)
++	data, err := getEnvelope[KeyTemplate](c, endpoint)
+ 	if err != nil {
+ 		return nil, err
+ 	}

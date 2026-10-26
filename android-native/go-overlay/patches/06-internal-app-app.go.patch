@@ -1,0 +1,39 @@
+--- a/internal/app/app.go
++++ b/internal/app/app.go
+@@ -1,9 +1,13 @@
+ package app
+ 
+ import (
+-	"amdl/internal/config"
+ 	"os"
+ 	"regexp"
++
++	"github.com/fatih/color"
++
++	"amdl/internal/config"
++	"amdl/internal/logx"
+ )
+ 
+ var (
+@@ -16,6 +20,8 @@
+ 	Select         bool
+ 	ArtistSelect   bool
+ 	Debug          bool
++	Verbose        bool
++	UILanguage     string
+ 	PrintJSON      bool
+ 	SaveM3U8       bool
+ 	LiteServerFlag string
+@@ -79,3 +85,12 @@
+ 	}
+ 	return false, err
+ }
++
++// askForInput 在等待 stdin 之前先发一行 ##prompt 协议标记。
++//
++// 标记是语言无关的：Android 端看到它就弹出输入/选择界面；
++// 人看到的仍是紧接着的那行翻译好的提示（只带颜色，不加级别标记）。
++func askForInput(promptColor *color.Color, prompt string) {
++	logx.Print("##prompt\n")
++	promptColor.Print(prompt)
++}

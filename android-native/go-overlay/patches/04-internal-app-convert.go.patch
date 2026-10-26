@@ -1,0 +1,108 @@
+--- a/internal/app/convert.go
++++ b/internal/app/convert.go
+@@ -1,9 +1,10 @@
+ package app
+ 
+ import (
++	"amdl/internal/logx"
++	"amdl/internal/model"
+ 	"bytes"
+ 	"fmt"
+-	"amdl/internal/model"
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
+@@ -102,13 +103,13 @@
+ 
+ 	// Map extension for output
+ 	if targetFmt == "copy" {
+-		fmt.Println("Convert (copy) requested; skipping because it produces no new format.")
++		logx.WarnT("app.convert.copy_skipped")
+ 		return
+ 	}
+ 
+ 	if r.Config.Convert.SkipIfSourceMatch {
+ 		if ext == "."+targetFmt {
+-			fmt.Printf("Conversion skipped (already %s)\n", targetFmt)
++			logx.DetailT("app.convert.skip_already", targetFmt)
+ 			return
+ 		}
+ 	}
+@@ -119,26 +120,26 @@
+ 	// Handle lossy -> lossless cases: optionally skip or warn
+ 	if (targetFmt == "flac" || targetFmt == "wav") && r.isLossySource(ext, track.Codec) {
+ 		if r.Config.Convert.SkipLossyToLossless {
+-			fmt.Println("Skipping conversion: source appears lossy and target is lossless; configured to skip.")
++			logx.DetailT("app.convert.skip_lossy_to_lossless")
+ 			return
+ 		}
+ 		if r.Config.Convert.WarnLossyToLossless {
+-			fmt.Println("Warning: Converting lossy source to lossless container will not improve quality.")
++			logx.WarnT("app.convert.warn_lossy_to_lossless")
+ 		}
+ 	}
+ 
+ 	if _, err := exec.LookPath(r.Config.Convert.FFmpegPath); err != nil {
+-		fmt.Printf("ffmpeg not found at '%s'; skipping conversion.\n", r.Config.Convert.FFmpegPath)
++		logx.WarnT("app.convert.ffmpeg_missing", r.Config.Convert.FFmpegPath)
+ 		return
+ 	}
+ 
+ 	args, err := r.buildFFmpegArgs(r.Config.Convert.FFmpegPath, srcPath, outPath, targetFmt, r.Config.Convert.ExtraArgs)
+ 	if err != nil {
+-		fmt.Println("Conversion config error:", err)
++		logx.ErrorT("app.convert.config_error", err)
+ 		return
+ 	}
+ 
+-	fmt.Printf("Converting -> %s ...\n", targetFmt)
++	logx.StepT("app.convert.converting", targetFmt)
+ 	cmd := exec.Command(r.Config.Convert.FFmpegPath, args...)
+ 	var stderr bytes.Buffer
+ 	if r.Config.Convert.CheckBadALAC {
+@@ -149,36 +150,36 @@
+ 	cmd.Stdout = nil
+ 	start := time.Now()
+ 	if err := cmd.Run(); err != nil {
+-		fmt.Println("Conversion failed:", err)
++		logx.ErrorT("app.convert.failed", err)
+ 		// leave original
+ 		return
+ 	}
+ 	if r.Config.Convert.CheckBadALAC && stderr.Len() > 0 {
+-		fmt.Print("Detected ALAC Error.", "\n")
++		logx.WarnT("app.convert.bad_alac_detected")
+ 		if r.Config.Convert.DeleteBadALAC {
+ 			delPath := strings.TrimSuffix(srcPath, "m4a") + targetFmt
+ 			logPath := strings.TrimSuffix(srcPath, "m4a") + "log"
+ 			if err := os.Remove(delPath); err != nil {
+-				fmt.Println("Failed to remove convert:", err)
++				logx.WarnT("app.convert.remove_output_failed", err)
+ 			} else {
+-				fmt.Println("Convert removed due to the bad ALAC.")
++				logx.WarnT("app.convert.removed_bad_alac")
+ 				log := stderr
+ 				err = os.WriteFile(logPath, log.Bytes(), 0644)
+ 				if err != nil {
+-					fmt.Println("Convert logs:", log)
++					logx.DetailT("app.convert.logs", log.String())
+ 				} else {
+-					fmt.Println("Convert logs are stored in:", logPath)
++					logx.DetailT("app.convert.logs_saved", logPath)
+ 				}
+ 			}
+ 		}
+ 	} else {
+-		fmt.Printf("Conversion completed in %s: %s\n", time.Since(start).Truncate(time.Millisecond), filepath.Base(outPath))
++		logx.OKT("app.convert.completed", logx.Since(start), filepath.Base(outPath))
+ 
+ 		if !r.Config.Convert.KeepOriginal {
+ 			if err := os.Remove(srcPath); err != nil {
+-				fmt.Println("Failed to remove original after conversion:", err)
++				logx.WarnT("app.convert.remove_original_failed", err)
+ 			} else {
+-				fmt.Println("Original removed.")
++				logx.DetailT("app.convert.original_removed")
+ 			}
+ 
+ 		}
