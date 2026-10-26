@@ -1,0 +1,30 @@
+# 构建产物：都能用 android-native/build-core.sh / build-apk.sh 重新生成
+/android-native/build/
+/android-native/out/
+/android-native/app/src/main/jniLibs/
+/android-native/app/build/
+/dist/
+/build/
+*.apk
+*.apk.idsig
+*.aab
+
+# Go
+/amdl
+/amdl_*
+# 只忽略根目录误编译出的二进制；不能写成裸 alacfix，
+# 否则会连 internal/media/alacfix/ 整个包一起忽略（踩过）
+/alacfix
+
+# 补丁残留与临时文件
+*.orig
+*.rej
+*.swp
+*~
+.DS_Store
+
+# Gradle / IDE
+.gradle/
+local.properties
+.idea/
+*.iml

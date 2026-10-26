@@ -66,4 +66,17 @@ if [ -d "$here/files" ]; then
   echo "    新增/覆盖文件: $count"
 fi
 
+# 4) 删掉上游自带、本仓库不需要的文件（见 remove.txt）
+if [ -f "$here/remove.txt" ]; then
+  removed=0
+  while IFS= read -r rel; do
+    case "$rel" in ''|\#*) continue ;; esac
+    if [ -e "$target/$rel" ]; then
+      rm -f "$target/$rel"
+      removed=$((removed + 1))
+    fi
+  done < "$here/remove.txt"
+  echo "    删除上游文件: $removed"
+fi
+
 echo "==> overlay 完成"

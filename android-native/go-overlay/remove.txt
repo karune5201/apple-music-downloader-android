@@ -1,0 +1,6 @@
+# 叠加 overlay 时要删掉的上游文件（每行一个相对路径，空行与 # 注释忽略）。
+# 上游自带的 GitHub Actions 对本仓库无用：
+#   ci.yml     每次推 main 都跑上游的 CLI 测试，本仓库必然失败
+#   docker.yml 打 tag 时往 GHCR 推一个容器镜像，与本项目无关
+.github/workflows/ci.yml
+.github/workflows/docker.yml

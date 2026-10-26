@@ -42,12 +42,22 @@ while IFS= read -r -d '' src; do
 done < <(find "$repo" -name '*.go' -not -path '*/android-native/*' -print0)
 
 # 非 .go 的少量文件（配置模板等）也要跟着 overlay 走
-for rel in config.yaml.example; do
+for rel in config.yaml.example .gitignore .github/workflows/release.yml; do
   if [ -f "$repo/$rel" ] && ! cmp -s "$repo/$rel" "$base/$rel"; then
     mkdir -p "$here/files/$(dirname "$rel")"
     cp -a "$repo/$rel" "$here/files/$rel"
     new=$((new + 1))
   fi
 done
+
+# 上游有、本仓库要删掉的文件
+cat > "$here/remove.txt" <<'REMOVE'
+# 叠加 overlay 时要删掉的上游文件（每行一个相对路径，空行与 # 注释忽略）。
+# 上游自带的 GitHub Actions 对本仓库无用：
+#   ci.yml     每次推 main 都跑上游的 CLI 测试，本仓库必然失败
+#   docker.yml 打 tag 时往 GHCR 推一个容器镜像，与本项目无关
+.github/workflows/ci.yml
+.github/workflows/docker.yml
+REMOVE
 
 echo "新增文件: $new   补丁: $pat"
