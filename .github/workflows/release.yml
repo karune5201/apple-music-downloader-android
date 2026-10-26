@@ -1,168 +1,194 @@
-name: Release
+name: Build & Release APK
 
-# Releases are driven by the VERSION file: whenever main is pushed and the tag
-# v<VERSION> does not exist yet, binaries are built and a release is published.
-# Bumping VERSION in a commit (or merged PR) is all it takes to cut a release.
+# 打 tag（v1.0.1 之类）即自动出包并发布 Release；
+# 也可以在 Actions 页面手动触发（可只出测试包、不发布）。
 on:
   push:
-    branches: [ "main" ]
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本名（如 1.0.1，留空则用 ci-<run>）'
+        required: false
+        default: ''
+      version_code:
+        description: '版本号（整数，必须比上一版大；留空则用 100+run_number）'
+        required: false
+        default: ''
+      release:
+        description: '发布到 Release（关掉就只产出 Artifact）'
+        type: boolean
+        default: true
+
+# 同一时间只允许一个构建，避免两个 Release 抢同一个 tag
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
-concurrency:
-  group: release
-  cancel-in-progress: false
+env:
+  # aapt2 2.19(arm64) 读不了 API 30+ 的 resources.arsc，统一按 API 29 编译
+  ANDROID_PLATFORM: android-29
+  BUILD_TOOLS_VERSION: '34.0.0'
 
 jobs:
-  check:
-    name: Check VERSION
-    runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.version.outputs.tag }}
-      release: ${{ steps.version.outputs.release }}
-      prerelease: ${{ steps.version.outputs.prerelease }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Read VERSION
-        id: version
-        run: |
-          VERSION=$(tr -d '[:space:]' < VERSION)
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error file=VERSION::'$VERSION' is not a valid semantic version (expected e.g. 0.1.0)"
-            exit 1
-          fi
-          TAG="v${VERSION}"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" > /dev/null; then
-            echo "Tag ${TAG} already exists; nothing to release."
-            echo "release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Tag ${TAG} not found; releasing."
-            echo "release=true" >> "$GITHUB_OUTPUT"
-          fi
-          if [[ "$VERSION" == *-* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-
   build:
-    name: Build ${{ matrix.target }}
-    needs: check
-    if: needs.check.outputs.release == 'true'
+    name: 编译签名 APK
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: windows
-            goarch: amd64
-            target: amdl_windows_amd64.exe
-          - goos: windows
-            goarch: arm64
-            target: amdl_windows_arm64.exe
-          - goos: linux
-            goarch: amd64
-            target: amdl_linux_amd64
-          - goos: linux
-            goarch: arm64
-            target: amdl_linux_arm64
-          - goos: android
-            goarch: arm64
-            target: amdl_android_arm64
-            # Android needs cgo so DNS goes through bionic's resolver; the pure-Go
-            # resolver reads /etc/resolv.conf, which Android does not have.
-            cgo: 1
-            cc: aarch64-linux-android24-clang
-          - goos: darwin
-            goarch: amd64
-            target: amdl_darwin_amd64
-          - goos: darwin
-            goarch: arm64
-            target: amdl_darwin_arm64
     steps:
-      - name: Checkout code
+      - name: 检出源码
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Go
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23.1'
+          go-version-file: go.mod      # 跟 go.mod 的 go 指令走
+          cache: true
 
-      - name: Build binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: ${{ matrix.cgo || 0 }}
-          RELEASE_TAG: ${{ needs.check.outputs.tag }}
-          # Self-update follows whichever repository built the binary.
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'           # 只是编译 d8/apksigner 用，产物仍是 Java 8 字节码
+
+      - name: 安装 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 platform 与 build-tools
         run: |
-          if [ -n "${{ matrix.cc }}" ]; then
-            export CC="${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.cc }}"
-          fi
-          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          OUTPUT_NAME="${{ matrix.target }}"
-          go build -trimpath -ldflags="-s -w \
-            -X 'amdl/internal/version.Version=${RELEASE_TAG}' \
-            -X 'amdl/internal/version.Commit=${{ github.sha }}' \
-            -X 'amdl/internal/version.BuildDate=${BUILD_DATE}' \
-            -X 'amdl/internal/updater.RepoOwner=${REPO_OWNER}' \
-            -X 'amdl/internal/updater.RepoName=${REPO_NAME}'" \
-            -o "${OUTPUT_NAME}" .
-          echo "BUILT_FILE=${OUTPUT_NAME}" >> $GITHUB_ENV
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager --install "platforms;${ANDROID_PLATFORM}" "build-tools;${BUILD_TOOLS_VERSION}"
 
-      - name: Upload artifact
+      - name: 导出工具链路径
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          BT="$SDK/build-tools/${BUILD_TOOLS_VERSION}"
+          test -f "$SDK/platforms/${ANDROID_PLATFORM}/android.jar" || { echo "缺少 android.jar"; exit 1; }
+          test -x "$BT/aapt2" || { echo "缺少 aapt2"; exit 1; }
+          {
+            echo "ANDROID_JAR=$SDK/platforms/${ANDROID_PLATFORM}/android.jar"
+            echo "NATIVE_BT=$BT"
+            echo "JAVA_BT=$BT"
+          } >> "$GITHUB_ENV"
+          go version; javac -version; "$BT/aapt2" version
+
+      - name: 计算版本号
+        id: ver
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            name="${{ inputs.version }}"
+            code="${{ inputs.version_code }}"
+          else
+            name="${tag#v}"
+            code=""
+          fi
+          [ -n "$name" ] || name="ci-${GITHUB_RUN_NUMBER}"
+          # versionCode 必须单调递增，否则 Android 不给覆盖安装。
+          # 规则与 build-apk.sh 一致：major*10000 + minor*100 + patch
+          if [ -z "$code" ]; then
+            code="$(printf '%s' "${name%%.*-*}" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')"
+            [ -n "$code" ] && [ "$code" -gt 0 ] 2>/dev/null || code=$(( 10000 + GITHUB_RUN_NUMBER ))
+          fi
+          echo "name=$name"   >> "$GITHUB_OUTPUT"
+          echo "code=$code"   >> "$GITHUB_OUTPUT"
+          echo "版本: $name ($code)"
+
+      # 门禁：Go 侧先编译通过、测试通过，再打包。
+      # 排除两项（都是既有问题，与 APK 无关）：
+      #   · android-native/go-patch 是 package main 的补丁文件，单独 build 无入口
+      #   · internal/media/lyrics 的测试依赖 gopkg.in/yaml.v2，未进 go.mod
+      - name: Go 编译与测试门禁
+        run: |
+          set -euo pipefail
+          go build ./internal/... .
+          go vet ./internal/...
+          pkgs="$(go list ./internal/... | grep -v '/internal/media/lyrics$')"
+          go test $pkgs
+
+      - name: 拉取 ffmpeg（arm64 可执行文件）
+        run: ./android-native/fetch-ffmpeg.sh
+
+      - name: 编译下载核心（Go → libamdl.so）
+        run: ./android-native/build-core.sh
+
+      - name: 编译 ffmpeg 兼容层
+        run: ./android-native/build-shim.sh
+
+      - name: 打包签名 APK
+        env:
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+          VERSION_CODE: ${{ steps.ver.outputs.code }}
+        run: ./android-native/build-apk.sh
+
+      - name: 校验签名指纹
+        run: |
+          set -euo pipefail
+          apk="android-native/out/app-release.apk"
+          want="$(tr -d ':\n' < android-native/signing/fingerprint.txt | tr 'A-F' 'a-f')"
+          got="$("$JAVA_BT/apksigner" verify --print-certs "$apk" \
+                 | sed -n 's/.*SHA-256 digest: //p' | head -1 | tr -d ':')"
+          echo "期望: $want"
+          echo "实际: $got"
+          [ "$want" = "$got" ] || { echo "签名指纹不一致：覆盖安装会失败"; exit 1; }
+          # 对齐与最低版本再确认一遍
+          "$NATIVE_BT/zipalign" -c -p 4 "$apk"
+          "$NATIVE_BT/aapt" dump badging "$apk" | head -1
+
+      - name: 生成校验和与体积信息
+        run: |
+          cd android-native/out
+          sha256sum app-release.apk > app-release.apk.sha256
+          ls -lh app-release.apk
+
+      - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BUILT_FILE }}
-          path: ${{ env.BUILT_FILE }}
+          name: amdl-${{ steps.ver.outputs.name }}
+          path: |
+            android-native/out/app-release.apk
+            android-native/out/app-release.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
 
-  publish:
-    name: Publish Release
-    needs: [ check, build ]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-          merge-multiple: true
-
-      - name: Generate Checksums
-        working-directory: release-assets
+      - name: 发布 Release
+        if: github.event_name == 'push' || inputs.release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.name }}
+          CODE: ${{ steps.ver.outputs.code }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.ver.outputs.name) }}
         run: |
-          sha256sum amdl_* > checksums.txt
-          cat checksums.txt
+          set -euo pipefail
+          apk="android-native/out/app-release.apk"
+          notes="$(cat <<EOF
+          ### 安装
+          下载 \`app-release.apk\` 直接覆盖安装，**不需要卸载旧版**（签名固定不变）。
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          # The tag is created at the built commit; tags made with GITHUB_TOKEN
-          # do not trigger other workflows, so building happens here instead.
-          tag_name: ${{ needs.check.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          files: release-assets/*
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ needs.check.outputs.prerelease == 'true' }}
+          - versionName: \`${VERSION}\`
+          - versionCode: \`${CODE}\`
+          - 仅 arm64-v8a，minSdk 26（Android 8.0+）
+          - 校验: \`sha256sum -c app-release.apk.sha256\`
 
-  docker:
-    name: Docker Image
-    needs: [ check, publish ]
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/docker.yml
-    with:
-      tag: ${{ needs.check.outputs.tag }}
+          ### 这一版包含
+          - 中文日志，中日英三语可在「配置 → 界面语言」切换
+          - 修复分片计数（\`playlist=1024 fragments=7\` 导致每首失败）
+          - 取消全部网络超时，改为断线续传；lite-server 瞬时错误自动重试
+          - 下载后 ALAC 三层检测（结构 + 解码 + 时长）
+          EOF
+          )"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "==> Release $TAG 已存在，覆盖上传附件"
+            gh release upload "$TAG" "$apk" android-native/out/app-release.apk.sha256 --clobber
+          else
+            gh release create "$TAG" \
+              --title "AMDL $VERSION" \
+              --target "$GITHUB_SHA" \
+              --notes "$notes" \
+              "$apk" android-native/out/app-release.apk.sha256
+          fi
+          echo "==> https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"

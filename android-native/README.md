@@ -176,10 +176,24 @@ cd <repo> && ./android-native/go-overlay/gen.sh /tmp/base   # 重新导出 files
 
 ### 版本号
 
-`build-apk.sh` 里的 `--version-code` / `--version-name` 是手动维护的，发版前记得加一：
+版本号只有一个源：`VERSION_NAME`。
 
 ```bash
-grep -n "VERSION_CODE" android-native/build-apk.sh   # 当前 100 / 1.0.0
+VERSION_NAME=1.0.1 ./android-native/build-apk.sh     # versionCode 自动算成 10001
+```
+
+规则是 `major*10000 + minor*100 + patch`（1.0.0 → 10000、1.2.3 → 10203），
+所以**改版本名就等于改版本号**，不会出现"忘了加 versionCode 导致装不上"。
+
+发版也可以直接交给 CI：推一个 `v*` tag，GitHub Actions 会编译、校验签名指纹、
+打出 APK 并发到 Release（见 `.github/workflows/release.yml`）：
+
+```bash
+git tag v1.0.1 && git push origin v1.0.1
+```
+
+```bash
+grep -n "VERSION_CODE" android-native/build-apk.sh   # 手动覆盖时才用
 ```
 
 版本号同时出现在 `build-apk.sh`（无 Gradle 构建）和 `app/build.gradle`（Gradle 构建）里，两处要一起改。
