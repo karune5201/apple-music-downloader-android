@@ -58,6 +58,11 @@ cat > "$here/remove.txt" <<'REMOVE'
 #   docker.yml 打 tag 时往 GHCR 推一个容器镜像，与本项目无关
 .github/workflows/ci.yml
 .github/workflows/docker.yml
+# 上游 CLI 的容器打包，Android 版用不到
+Dockerfile
+compose.yaml
+docker-entrypoint.sh
+.dockerignore
 REMOVE
 
 echo "新增文件: $new   补丁: $pat"
