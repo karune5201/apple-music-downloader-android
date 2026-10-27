@@ -2,6 +2,7 @@ package com.amdl.nativeapp;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 
 import java.util.Map;
 
@@ -394,6 +395,20 @@ public final class Prefs {
 
     public void setThemeMode(String value) {
         setStr(K_THEME, value);
+    }
+
+    /** 明暗的最终结果：用户强制就听用户的，否则跟随系统。 */
+    public boolean darkTheme(Context context) {
+        String mode = themeMode();
+        if (THEME_DARK.equals(mode)) {
+            return true;
+        }
+        if (THEME_LIGHT.equals(mode)) {
+            return false;
+        }
+        int uiMode = context.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK;
+        return uiMode == Configuration.UI_MODE_NIGHT_YES;
     }
 
     /** 界面语言：返回规范化后的 zh/ja/en，永远不为空。 */

@@ -53,8 +53,8 @@ TARGET_SDK=35
 # Bump both on every release: Android only offers an in-place update when the
 # version code grows, and the signature stays identical (see signing/README.md).
 # versionCode = major*10000 + minor*100 + patch，与 VERSION_NAME 一一对应：
-# 1.0.0 -> 10000、1.1.0 -> 10100、1.0.1 -> 10001。发版只改 VERSION_NAME，code 不会忘记加。
-VERSION_NAME="${VERSION_NAME:-1.1.0}"
+# 1.0.0 -> 10000、1.1.0 -> 10100、1.2.0 -> 10200。发版只改 VERSION_NAME，code 不会忘记加。
+VERSION_NAME="${VERSION_NAME:-1.2.0}"
 VERSION_CODE="${VERSION_CODE:-$(awk -F. '{printf "%d", $1*10000 + $2*100 + $3}' <<< "${VERSION_NAME%%.*-*}" 2>/dev/null || echo 10000)}"
 
 rm -rf "$build" && mkdir -p "$build/res" "$build/gen" "$build/classes" "$build/dex" "$build/stage/lib/arm64-v8a" "$out"

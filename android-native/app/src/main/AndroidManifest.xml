@@ -48,6 +48,15 @@
             </intent-filter>
         </activity>
 
+        <!-- 网页登录：内置 WebView 抓 media-user-token。
+             声明 configChanges，旋转/分屏时不让 Activity 重建，登录会话和已加载页面都不会丢。 -->
+        <activity
+            android:name=".WebLoginActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:label="Apple Music"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".DownloadService"
             android:exported="false"

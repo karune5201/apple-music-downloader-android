@@ -128,6 +128,8 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
     private boolean logCollapsed;
     /** 当前显示的配置面板；切换语言后要先关掉，才能按新语言重建整个界面。 */
     private Dialog settingsDialog;
+    /** 配置面板里的 media-user-token 输入框：网页登录抓回来后要就地刷新。 */
+    private EditText edMediaToken;
 
     private final AmdlRunner.PromptHandler promptHandler = new AmdlRunner.PromptHandler() {
         @Override
@@ -156,16 +158,16 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
 
     /** 跟随系统或按用户选择决定明暗；系统切换主题会重建 Activity，从而重新计算。 */
     private boolean isDarkRequested() {
-        String mode = prefs.themeMode();
-        if (Prefs.THEME_DARK.equals(mode)) {
-            return true;
+        return prefs.darkTheme(this);
+    }
+
+    /** 打开内置网页登录，登录后台自动把 media-user-token 写进配置。 */
+    private void openWebLogin() {
+        try {
+            startActivity(new Intent(this, WebLoginActivity.class));
+        } catch (Throwable error) {
+            toast(Strings.get("web.unsupported"));
         }
-        if (Prefs.THEME_LIGHT.equals(mode)) {
-            return false;
-        }
-        int uiMode = getResources().getConfiguration().uiMode
-                & Configuration.UI_MODE_NIGHT_MASK;
-        return uiMode == Configuration.UI_MODE_NIGHT_YES;
     }
 
     /** 状态栏 / 导航栏跟界面同色，深色下用浅色图标。 */
@@ -354,20 +356,29 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
         appBar.addView(titles, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        Button btnInspect = Ui.textButton(this, Strings.get("app.inspect"));
+        // 网页登录：抓 media-user-token（电台需要），顺手把值填进配置
+        Button btnWeb = Ui.appBarButton(this, Strings.get("app.web"));
+        btnWeb.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openWebLogin();
+            }
+        });
+        Button btnInspect = Ui.appBarButton(this, Strings.get("app.inspect"));
         btnInspect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 startDownload(true);
             }
         });
-        Button btnConfig = Ui.textButton(this, Strings.get("app.settings"));
+        Button btnConfig = Ui.appBarButton(this, Strings.get("app.settings"));
         btnConfig.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 showSettingsDialog();
             }
         });
+        appBar.addView(btnWeb);
         appBar.addView(btnInspect);
         appBar.addView(btnConfig);
         root.addView(appBar);
@@ -799,6 +810,18 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
     protected void onResume() {
         super.onResume();
         updateRunningUi(AmdlRunner.isRunning());
+        refreshTokenField();
+    }
+
+    /** 从网页登录回来时，把刚抓到的 token 显示进配置面板的输入框。 */
+    private void refreshTokenField() {
+        if (settingsDialog == null || edMediaToken == null) {
+            return;
+        }
+        String token = prefs.raw(Prefs.K_MEDIA_TOKEN);
+        if (!token.trim().isEmpty()) {
+            edMediaToken.setText(token);
+        }
     }
 
     // ---------------------------------------------------------------- actions
@@ -1213,6 +1236,23 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
         Strings.get("account.proxy"), "http://127.0.0.1:7890");
         addField(content, fields, fieldKeys, Prefs.K_MEDIA_TOKEN,
         Strings.get("account.mtoken"), "");
+        // 网页登录入口：省掉在开发者工具里翻 Cookie 这一步
+        edMediaToken = fields.get(fields.size() - 1);
+        LinearLayout tokenRow = new LinearLayout(this);
+        tokenRow.setOrientation(LinearLayout.HORIZONTAL);
+        tokenRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams tokenRowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tokenRowParams.bottomMargin = Ui.dp(this, 8);
+        Button btnToken = Ui.textButton(this, Strings.get("web.fetch"));
+        btnToken.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openWebLogin();
+            }
+        });
+        tokenRow.addView(btnToken);
+        content.addView(tokenRow, tokenRowParams);
         addField(content, fields, fieldKeys, Prefs.K_AUTH_TOKEN, Strings.get("account.atoken"), "");
         addField(content, fields, fieldKeys, Prefs.K_DNS,
         Strings.get("account.dns"), "223.5.5.5, 8.8.8.8");
@@ -1439,6 +1479,7 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
             public void onDismiss(DialogInterface dismissed) {
                 if (settingsDialog == dismissed) {
                     settingsDialog = null;
+                    edMediaToken = null;
                 }
             }
         });

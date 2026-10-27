@@ -82,7 +82,7 @@ Gradle 8.5.2 + AGP 8.5.2，`namespace com.amdl.nativeapp`，`minSdk 26`，`targe
 
 ```bash
 ./build-apk.sh    # aapt2 → javac → d8 → zipalign → apksigner
-# 产物：android-native/out/app-release.apk（正式版 1.1.0，签名固定）
+# 产物：android-native/out/app-release.apk（正式版 1.2.0，签名固定）
 ```
 
 脚本把“注入 `package`”“Java 8 目标”“dex/so 不压缩并页对齐”“固定签名（见 3.4）”这些细节都处理好了；
@@ -319,6 +319,23 @@ App 只往“配置”里填写的路径写，没有隐藏的默认目录、也�
 （`exit-on-error: true`，以及 ffmpeg 相关的 `convert.*` 开关）。模板缺失或解析异常时，
 会自动退回内置的手写版本，保证下载不会因为配置生成失败而中断。
 
+#### media-user-token（电台）：右上角 “Web” 一键获取
+
+电台需要 Apple Music 账号的 `media-user-token`（wrapper-lite 暂不支持电台）。
+手动做法要开开发者工具翻 Cookie，手机上基本不可行，所以顶栏右上角加了一个 **Web** 按钮：
+
+- 打开内置 WebView（`WebLoginActivity`）加载 `music.apple.com`，正常登录 Apple ID；
+- 登录成功后 Cookie 里就有 `media-user-token`，页面每次加载完 + 每 0.8s 轮询一次
+  （`CookieManager.getCookie("https://music.apple.com")`），读到就写进 `Prefs.K_MEDIA_TOKEN`，
+  提示“已保存”并自动返回；配置面板里的那一栏同时刷新；
+- 抓不到时（Apple 改 Cookie 名 / WebView 被拦）还有手动通道：把开发者工具里
+  “应用 → Cookie → music.apple.com” 的 `media-user-token` 值粘到底部输入框，或点“粘贴剪贴板”；
+- 配置面板里 `media-user-token` 下面也有一个“Web 登录获取”按钮，登录回来输入框就地刷新；
+- 工程细节：放行第三方 Cookie（Apple 登录跨域，否则回跳后没有会话）、去掉 UA 里的 `; wv`（登录页见到
+  它会提示浏览器不受支持）、`configChanges` 声明让旋转/分屏不重建（页面与登录状态不丢）；
+- token 只写进本机 `SharedPreferences`，下载时由 `ConfigWriter` 写进 `config.yaml`
+  的 `general.media-user-token`，随请求交给 wrapper-lite 转发给 Apple，App 不上传任何地方。
+
 ### 4.6 转码（内置 ffmpeg）
 
 APK 里带了一份 ffmpeg 3.3.2（arm64），不需要外挂或 Termux：
@@ -552,7 +569,8 @@ android-native/
 
 整体按 MD3 信息层级排布：
 
-- **顶部应用栏**：标题在左，右侧为“查质量”“配置”文字按钮；
+- **顶部应用栏**：标题在左，右侧为 “Web”“查质量”“配置” 三个文字按钮（“Web” 打开内嵌浏览器登录
+  Apple Music 并自动抓 `media-user-token`，见 4.5）；
 - **中部可滚动表单**：只有“音质”和“链接”两张卡片；解密服务地址、四条下载路径、账号、命名等都收进右上角“配置”面板；
 - **主操作**：单排“开始下载”（filled）+“停止”（outlined）；
 - **底部日志**：带“实时日志”标题（右侧为运行状态），空态居中显示提示，下载时逐行刷新、

@@ -222,6 +222,18 @@ final class Ui {
         return button;
     }
 
+    /**
+     * 顶栏上的文字按钮：左右内边距收到 12dp。
+     *
+     * <p>手机上顶栏要挤下“Web / 查质量 / 配置”三个按钮，24dp 的标准内边距会把
+     * 标题挤没。
+     */
+    static Button appBarButton(Context context, String label) {
+        Button button = textButton(context, label);
+        button.setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10));
+        return button;
+    }
+
     /** MD3 text button — low emphasis, no container. */
     static Button textButton(Context context, String label) {
         Button button = baseButton(context, label, PRIMARY, 14);
