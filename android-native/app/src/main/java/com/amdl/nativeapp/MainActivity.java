@@ -60,6 +60,15 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
 
     private static final int LOG_MIN_DP = 88;
     private static final int LOG_DEFAULT_DP = 150;
+
+    /** 大屏分栏阈值：宽度和高度同时够，才把配置与日志并排放。 */
+    private static final int WIDE_MIN_WIDTH_DP = 600;
+    private static final int WIDE_MIN_HEIGHT_DP = 400;
+    /** 左栏（配置区）宽度区间：窄了控件挤，宽了一行字太长。 */
+    private static final int LEFT_PANE_MIN_DP = 360;
+    private static final int LEFT_PANE_MAX_DP = 560;
+    /** 分栏内容的最大宽度：超宽屏（横屏平板、桌面窗口）居中留白，不无限拉长。 */
+    private static final int WIDE_CONTENT_MAX_DP = 1360;
     private static final int REQ_IMPORT = 103;
     private static final int REQ_NOTIFICATIONS = 100;
     private static final int REQ_STORAGE = 101;
@@ -86,6 +95,8 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
             java.util.regex.Pattern.compile("https?://[^\\s<>]+");
 
     private Prefs prefs;
+    /** 大屏判定结果：宽 ≥ 600dp 且高 ≥ 400dp 时配置与日志左右分栏。 */
+    private boolean wide;
     private EditText edUrls;
     private TextView tvQueue;
     private TextView tvStatus;
@@ -134,6 +145,8 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
             Strings.setLang(prefs.uiLanguage());
             Ui.apply(isDarkRequested());
             applySystemBars();
+            // 窗口尺寸变了系统会重建 Activity，这里每次都按当前窗口重新判断。
+            wide = isWideLayout();
             setContentView(buildContentView());
             wireUp();
         } catch (Throwable error) {
@@ -197,6 +210,11 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
     // ------------------------------------------------------------------ views
 
     private View buildContentView() {
+        return wide ? buildWideContentView() : buildPhoneContentView();
+    }
+
+    /** 手机，以及大屏上被拉窄的多窗口：单列，上半部配置、下半部日志。 */
+    private View buildPhoneContentView() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Ui.SURFACE);
@@ -221,6 +239,102 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
         buildActions(root);
         buildStatusAndLog(root);
         return root;
+    }
+
+    // ---------------------------------------------------------------- 大屏布局
+
+    /** 平板、折叠屏展开、桌面窗口：宽高都够就并排成两栏。 */
+    private boolean isWideLayout() {
+        Configuration config = getResources().getConfiguration();
+        return config.screenWidthDp >= WIDE_MIN_WIDTH_DP
+                && config.screenHeightDp >= WIDE_MIN_HEIGHT_DP;
+    }
+
+    /** 当前窗口宽度（dp）。个别 ROM 在窗口建立前给 0，退回物理屏幕宽度。 */
+    private int windowWidthDp() {
+        Configuration config = getResources().getConfiguration();
+        if (config.screenWidthDp > 0) {
+            return config.screenWidthDp;
+        }
+        float density = getResources().getDisplayMetrics().density;
+        return Math.round(getResources().getDisplayMetrics().widthPixels / Math.max(1f, density));
+    }
+
+    /**
+     * 大屏：顶栏横跨整个宽度，下面左右两栏 —— 左栏配置与操作，右栏运行日志。
+     *
+     * <p>与手机版的三处差别：日志右栏占满高度，因此不再需要拖动抓手；音质、链接
+     * 两张卡片留在左栏，窄到 360~560dp 之间，不会被拉成一行长句；整体宽度超过
+     * 1360dp 时居中显示，两侧留白。
+     */
+    private View buildWideContentView() {
+        int widthDp = windowWidthDp();
+        int contentDp = Math.min(widthDp, WIDE_CONTENT_MAX_DP);
+        int leftDp = Math.max(LEFT_PANE_MIN_DP, Math.min(LEFT_PANE_MAX_DP,
+                Math.round(contentDp * 0.42f)));
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+
+        buildAppBar(content);
+
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.HORIZONTAL);
+
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        buildWideLeftPane(left);
+        body.addView(left, new LinearLayout.LayoutParams(
+                Ui.dp(this, leftDp), ViewGroup.LayoutParams.MATCH_PARENT));
+
+        View gutter = new View(this);
+        gutter.setBackgroundColor(Ui.OUTLINE_VARIANT);
+        LinearLayout.LayoutParams gutterParams = new LinearLayout.LayoutParams(
+                Math.max(1, Ui.dp(this, 0.5f)), ViewGroup.LayoutParams.MATCH_PARENT);
+        gutterParams.topMargin = Ui.dp(this, 12);
+        gutterParams.bottomMargin = Ui.dp(this, 12);
+        body.addView(gutter, gutterParams);
+
+        LinearLayout right = new LinearLayout(this);
+        right.setOrientation(LinearLayout.VERTICAL);
+        buildWideRightPane(right);
+        body.addView(right, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+
+        content.addView(body, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        FrameLayout host = new FrameLayout(this);
+        host.setBackgroundColor(Ui.SURFACE);
+        host.setFitsSystemWindows(true);
+        FrameLayout.LayoutParams contentParams = new FrameLayout.LayoutParams(
+                Ui.dp(this, contentDp), ViewGroup.LayoutParams.MATCH_PARENT);
+        contentParams.gravity = Gravity.CENTER_HORIZONTAL;
+        host.addView(content, contentParams);
+        return host;
+    }
+
+    /** 左栏：可滚动的配置表单 + 底部主操作。 */
+    private void buildWideLeftPane(LinearLayout pane) {
+        ScrollView configScroll = new ScrollView(this);
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(Ui.dp(this, 20), Ui.dp(this, 8), Ui.dp(this, 20), Ui.dp(this, 8));
+        configScroll.addView(form);
+
+        buildQualityCard(form);
+        buildLinkCard(form);
+
+        pane.addView(configScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        buildActions(pane);
+    }
+
+    /** 右栏：状态标题 + 占满高度的日志 + 选曲输入条（紧挨着它要读的曲目表）。 */
+    private void buildWideRightPane(LinearLayout pane) {
+        buildStatusHeader(pane);
+        buildLogCard(pane, true);
+        buildPromptBar(pane);
     }
 
     /** MD3 top app bar: title left, secondary actions right. */
@@ -440,9 +554,11 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
     }
 
     private void buildActions(LinearLayout root) {
+        // 分栏时左栏与表单卡片对齐（20dp），单列时沿用 16dp。
+        int side = Ui.dp(this, wide ? 20 : 16);
         LinearLayout primaryRow = new LinearLayout(this);
         primaryRow.setOrientation(LinearLayout.HORIZONTAL);
-        primaryRow.setPadding(Ui.dp(this, 16), Ui.dp(this, 6), Ui.dp(this, 16), Ui.dp(this, 6));
+        primaryRow.setPadding(side, Ui.dp(this, 6), side, Ui.dp(this, wide ? 14 : 6));
 
         btnStart = Ui.filledButton(this, Strings.get("action.start"));
         btnStart.setLayoutParams(new LinearLayout.LayoutParams(0,
@@ -473,6 +589,14 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
     }
 
     private void buildStatusAndLog(LinearLayout root) {
+        buildStatusHeader(root);
+        buildLogHandle(root);
+        buildLogCard(root, false);
+        buildPromptBar(root);
+    }
+
+    /** 日志标题行：左边标题，右边运行状态。手机与大屏共用。 */
+    private void buildStatusHeader(LinearLayout parent) {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -486,10 +610,14 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
         tvStatus.setGravity(Gravity.END);
         header.addView(tvStatus, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        root.addView(header);
+        parent.addView(header);
+    }
 
-        buildLogHandle(root);
-
+    /**
+     * 日志卡片。手机上传固定高度、由抓手调整；大屏上 {@code fillHeight} 让右栏
+     * 剩余空间全部给日志（屏幕越高日志越长，不需要手动拖）。
+     */
+    private void buildLogCard(LinearLayout parent, boolean fillHeight) {
         logCard = new LinearLayout(this);
         logCard.setOrientation(LinearLayout.VERTICAL);
         logCard.setBackground(Ui.rounded(Ui.SURFACE_CONTAINER_HIGHEST, 12, this));
@@ -497,7 +625,8 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
 
         FrameLayout logArea = new FrameLayout(this);
         scLog = new ScrollView(this);
-        tvLog = Ui.text(this, "", 11, Ui.ON_SURFACE);
+        // 大屏上右栏更宽也看得更远，日志字号跟着放大一档。
+        tvLog = Ui.text(this, "", wide ? 12 : 11, Ui.ON_SURFACE);
         tvLog.setTypeface(Typeface.MONOSPACE);
         tvLog.setTextIsSelectable(true);
         tvLog.setOnClickListener(new View.OnClickListener() {
@@ -528,15 +657,20 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
         tvProgress.setVisibility(View.GONE);
         logCard.addView(tvProgress);
 
-        int savedHeight = prefs.logHeightDp();
-        logHeightDp = Math.max(LOG_MIN_DP, savedHeight > 0 ? savedHeight : LOG_DEFAULT_DP);
-        logExpandedDp = logHeightDp;
-        logCollapsed = logHeightDp <= LOG_MIN_DP;
-        LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, logHeightDp));
+        LinearLayout.LayoutParams logParams;
+        if (fillHeight) {
+            logParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        } else {
+            int savedHeight = prefs.logHeightDp();
+            logHeightDp = Math.max(LOG_MIN_DP, savedHeight > 0 ? savedHeight : LOG_DEFAULT_DP);
+            logExpandedDp = logHeightDp;
+            logCollapsed = logHeightDp <= LOG_MIN_DP;
+            logParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, logHeightDp));
+        }
         logParams.setMargins(Ui.dp(this, 16), 0, Ui.dp(this, 16), Ui.dp(this, 8));
-        root.addView(logCard, logParams);
-        buildPromptBar(root);
+        parent.addView(logCard, logParams);
     }
 
     /**
@@ -625,6 +759,17 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
         updateQueueCount();
         requestNotificationPermissionIfNeeded();
         warnAboutMissingBinary();
+        restorePendingPrompt();
+    }
+
+    /**
+     * 界面被系统回收后（旋转、分屏、换语言）重建时，如果核心正等着选曲，
+     * 必须把输入条重新挂出来：否则用户没地方回答，下载会一直卡在这里。
+     */
+    private void restorePendingPrompt() {
+        if (AmdlRunner.isAwaitingPrompt()) {
+            showPromptBar();
+        }
     }
 
     @Override
@@ -643,6 +788,10 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
         String urls = edUrls == null ? "" : edUrls.getText().toString();
         if (!urls.trim().isEmpty()) {
             prefs.setLastUrls(urls);
+        }
+        // 音质选择和链接一样要留住：重建界面（旋转 / 分屏）后能回到原来的选择。
+        if (rgQuality != null) {
+            prefs.setQuality(currentQuality());
         }
     }
 
@@ -1758,11 +1907,14 @@ public class MainActivity extends Activity implements AmdlRunner.Listener {
         logBuffer.setLength(0);
         hideLogPlaceholder();
         List<String> lines = AmdlRunner.logSnapshot();
+        // 曲目表也一起恢复：选曲输入条要靠它数出有多少首可选。
+        recentLines.clear();
         for (int i = 0; i < lines.size(); i++) {
             if (logBuffer.length() > 0) {
                 logBuffer.append('\n');
             }
             logBuffer.append(lines.get(i));
+            rememberLine(lines.get(i));
         }
         // 恢复历史时同时重建带样式副本：否则第一行新日志会把历史覆盖掉，
         // 而且历史行也不会有级别颜色。

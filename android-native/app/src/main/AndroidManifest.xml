@@ -13,6 +13,18 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
+    <!-- 大屏：平板、折叠屏、桌面模式（ChromeOS）和电视都能装，窗口可自由缩放 -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <supports-screens
+        android:anyDensity="true"
+        android:largeScreens="true"
+        android:normalScreens="true"
+        android:resizeable="true"
+        android:smallScreens="true"
+        android:xlargeScreens="true" />
+
     <application
         android:name=".AmdlApp"
         android:allowBackup="false"
@@ -21,12 +33,14 @@
         android:requestLegacyExternalStorage="true"
         android:label="AM 下载器"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:resizeableActivity="true">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

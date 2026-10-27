@@ -82,7 +82,7 @@ Gradle 8.5.2 + AGP 8.5.2，`namespace com.amdl.nativeapp`，`minSdk 26`，`targe
 
 ```bash
 ./build-apk.sh    # aapt2 → javac → d8 → zipalign → apksigner
-# 产物：android-native/out/app-release.apk（正式版 1.0.0，签名固定）
+# 产物：android-native/out/app-release.apk（正式版 1.1.0，签名固定）
 ```
 
 脚本把“注入 `package`”“Java 8 目标”“dex/so 不压缩并页对齐”“固定签名（见 3.4）”这些细节都处理好了；
@@ -502,6 +502,7 @@ logx.OKT("app.saved", name)
 | 日志渲染 | `go test ./internal/logx` | 级别标记、空行折叠、`--verbose` 开关、横幅与吞吐格式化共 10 项 |
 | 断流续传 | `go test ./internal/fairplay-rip` | 服务端中途掐断连接 → 自动 `Range` 续传，字节与原文完全一致；忽略 `Range` 的服务器也能续；预算耗尽时报出偏移量 |
 | 删除半成品 | `go test ./internal/media/defrag` | `track contains no samples` 现在是 `ErrEmptyTrack`，调用方可判定后重试 |
+| 大屏声明 | `aapt dump badging out/app-release.apk` | `supports-screens: small normal large xlarge`、`uses-feature-not-required: android.hardware.touchscreen`，可装平板 / 桌面模式 / 电视 |
 | 权限 | `aapt dump badging` | INTERNET / ACCESS_NETWORK_STATE / FOREGROUND_SERVICE(_DATA_SYNC) / POST_NOTIFICATIONS / MANAGE_EXTERNAL_STORAGE，外加 `WRITE_EXTERNAL_STORAGE`（仅 API ≤29） |
 
 **尚未验证**：真机运行（本环境无 adb/设备）。装机后建议按顺序确认：
@@ -558,6 +559,28 @@ android-native/
   解密进度只更新卡片底部一行，点按日志可复制/清空；选曲输入条在日志下方内嵌出现，不遮挡编号。
 - **日志高度可调**：日志上方有一根抓手，上下拖动即可改变日志高度（88dp ~ 屏幕 55%），
   高度会被记住；单击抓手在“收起（88dp）”和“上次高度”之间切换。默认 150dp。
+  （大屏分栏时日志直接占满右栏高度，不再需要抓手，见 8.1。）
+
+### 8.1 大屏（平板 / 折叠屏 / 桌面窗口）
+
+界面全部在代码里搭，所以大屏适配也在代码里做，没有 `-land` / `-sw600dp` 之类的资源目录：
+
+| 场景 | 判定 | 布局 |
+|---|---|---|
+| 手机竖屏、被拉窄的多窗口 | 宽 < 600dp 或 高 < 400dp | 单列：应用栏 → 可滚动表单 → 操作 → 日志（抓手调高） |
+| 平板、折叠屏展开、手机横屏、桌面窗口 | 宽 ≥ 600dp 且 高 ≥ 400dp | 两栏：左栏配置与操作（360~560dp），右栏状态 + 日志吃满高度，中间 0.5dp 分隔线 |
+| 超宽屏 | 内容宽超过 1360dp 时封顶 | 整体居中、两侧留白，不把表单和日志拉成一行长句 |
+
+- 分栏后日志右栏吃满高度，手机版那根拖动抓手自动隐藏；日志字号 11sp → 12sp；
+- 选曲输入条跟着日志走，出现在**右栏日志正下方**，紧挨着它要读的曲目表；
+- 对话框（配置面板 / 权限 / 日志菜单）宽度封顶 560dp 居中，正文高度封顶 720dp，
+  横屏平板上标题与按钮不会被挤出屏幕；
+- 尺寸变化由系统重建 Activity 承接：宽窄切换自动重选布局，链接、音质、日志、待输入的选曲
+  都在重建后恢复（音质此前只在“开始下载”时落盘，现在 `onStop` 也会记住；
+  核心停在选曲提示上时，重建后输入条会自动重新挂出来，不会卡住等输入）；
+- `AndroidManifest.xml` 声明了 `resizeableActivity="true"`、
+  `supports-screens`（含 `resizeable`）和 `android.hardware.touchscreen`
+  （`required="false"`），因此可装到平板、ChromeOS 桌面模式和电视上，窗口可自由缩放、分屏。
 
 App 不含 AndroidX，也没有 Material Components 库，所以 MD3 是手写的：
 

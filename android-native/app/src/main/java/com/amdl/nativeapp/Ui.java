@@ -60,6 +60,11 @@ final class Ui {
 
     private static boolean dark;
 
+    /** 对话框宽度上限：大屏上配置面板不该铺满 12 英寸平板。 */
+    private static final int DIALOG_MAX_WIDTH_DP = 560;
+    /** 对话框正文高度上限：再长的配置表也只滚，不把标题和按钮顶出屏幕。 */
+    private static final int DIALOG_MAX_BODY_DP = 720;
+
     static {
         apply(false);
     }
@@ -421,7 +426,7 @@ final class Ui {
         card.addView(heading, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        ScrollView scroll = new ScrollView(activity);
+        BoundedScroll scroll = new BoundedScroll(activity, maxDialogBodyPx(activity));
         scroll.addView(content);
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
@@ -466,10 +471,58 @@ final class Ui {
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setLayout(dialogWidthPx(activity), ViewGroup.LayoutParams.WRAP_CONTENT);
         }
         return dialog;
+    }
+
+    /**
+     * 对话框宽度：手机上是屏幕宽减两侧内边距（看起来仍是通栏），
+     * 大屏上收到 {@value #DIALOG_MAX_WIDTH_DP}dp，居中显示。
+     */
+    private static int dialogWidthPx(Context context) {
+        int screen = context.getResources().getDisplayMetrics().widthPixels;
+        int max = dp(context, DIALOG_MAX_WIDTH_DP);
+        int width = Math.min(screen - dp(context, 48), max);
+        return width > 0 ? width : max;
+    }
+
+    /**
+     * 对话框正文高度上限：手机上仍接近满屏（只留出标题与按钮的 160dp），
+     * 大屏上收到 {@value #DIALOG_MAX_BODY_DP}dp，横屏平板不会铺满整屏。
+     */
+    private static int maxDialogBodyPx(Context context) {
+        int screen = context.getResources().getDisplayMetrics().heightPixels;
+        int limit = Math.min(screen - dp(context, 160), dp(context, DIALOG_MAX_BODY_DP));
+        return Math.max(dp(context, 200), limit);
+    }
+
+    /**
+     * 正文滚动区：给一个像素上限，内容再多也只滚不撑高。
+     *
+     * <p>没有上限时，长内容（配置面板有几十个字段）在横屏大屏上会把对话框
+     * 撑到整屏高，标题和按钮都被推出去。
+     */
+    static final class BoundedScroll extends ScrollView {
+        private final int maxHeightPx;
+
+        BoundedScroll(Context context, int maxHeightPx) {
+            super(context);
+            this.maxHeightPx = maxHeightPx;
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            if (maxHeightPx <= 0 || MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                return;
+            }
+            int limit = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.AT_MOST
+                    ? Math.min(MeasureSpec.getSize(heightMeasureSpec), maxHeightPx)
+                    : maxHeightPx;
+            super.onMeasure(widthMeasureSpec,
+                    MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST));
+        }
     }
 
     /** Hairline divider between sections. */

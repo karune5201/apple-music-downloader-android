@@ -95,6 +95,8 @@ public final class AmdlRunner {
     private static PromptHandler promptHandler;
     private static volatile boolean cancelled;
     private static volatile boolean running;
+    /** 核心正停在选曲提示上等 stdin：界面重建后靠它把输入条重新挂出来。 */
+    private static volatile boolean awaitingPrompt;
 
     /**
      * The CLI exits with status 0 even when individual tracks failed, so the
@@ -131,6 +133,11 @@ public final class AmdlRunner {
 
     public static boolean isCancelled() {
         return cancelled;
+    }
+
+    /** 核心此刻是否停在选曲提示上等着输入（界面重建后用来恢复输入条）。 */
+    public static boolean isAwaitingPrompt() {
+        return awaitingPrompt;
     }
 
     /** Tracks completed count parsed from the CLI summary line, or -1. */
@@ -270,6 +277,7 @@ public final class AmdlRunner {
             }
             cancelled = false;
             running = true;
+            awaitingPrompt = false;
             summaryCompleted = -1;
             summaryTotal = -1;
             summaryErrors = -1;
@@ -412,6 +420,7 @@ public final class AmdlRunner {
             out.write((text == null ? "" : text).getBytes(StandardCharsets.UTF_8));
             out.write('\n');
             out.flush();
+            awaitingPrompt = false;
             Log.i(TAG, "stdin -> " + text);
             return true;
         } catch (IOException e) {
@@ -515,6 +524,7 @@ public final class AmdlRunner {
             @Override
             public void run() {
                 if (handler != null) {
+                    awaitingPrompt = true;
                     handler.onPrompt(prompt);
                 } else {
                     // Nobody can ask the user: keep the run going by taking all.
@@ -530,6 +540,7 @@ public final class AmdlRunner {
             process = null;
             stdin = null;
             running = false;
+            awaitingPrompt = false;
         }
         for (int i = 0; i < LISTENERS.size(); i++) {
             final Listener listener = LISTENERS.get(i);
