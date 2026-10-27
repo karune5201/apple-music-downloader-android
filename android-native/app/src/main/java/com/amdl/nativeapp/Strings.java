@@ -172,55 +172,15 @@ public final class Strings {
         // ------------------------------------------------- 网页登录（取 token）
         put("web.title", "网页登录 Apple Music",
                 "Apple Music にウェブでログイン", "Sign in to Apple Music on the web");
-        put("web.subtitle", "登录后自动抓取 media-user-token（电台需要）",
-                "ログイン後に media-user-token を自動取得（ラジオに必要）",
-                "Fetches your media-user-token after sign-in (needed by radio)");
-        put("web.help.title", "media-user-token 从哪来",
-                "media-user-token とは", "Where the media-user-token comes from");
-        put("web.help.body",
-                "电台需要 Apple Music 账号的 media-user-token（wrapper-lite 暂不支持电台）。\n"
-                        + "在下面的网页里登录 music.apple.com，登录成功后会自动填入配置。\n"
-                        + "也可以手动：开发者工具 → 应用（Application）→ Cookie → "
-                        + "https://music.apple.com，复制 media-user-token 的值粘贴到底部输入框。\n"
-                        + "token 只保存在本机 App 的设置里，下载时随请求交给 wrapper-lite "
-                        + "转发给 Apple，App 不上传任何地方。",
-                "ラジオには Apple Music アカウントの media-user-token が必要です（wrapper-lite は未対応）。\n"
-                        + "下のページで music.apple.com にログインすると自動で設定に入ります。\n"
-                        + "手動の場合：開発者ツール → Application → Cookie → "
-                        + "https://music.apple.com で media-user-token の値をコピーし、下の欄に貼り付けます。\n"
-                        + "token は端末内の設定にのみ保存され、ダウンロード時に wrapper-lite 経由で "
-                        + "Apple に送られます。アプリが外部に送信することはありません。",
-                "Radio needs the media-user-token of your Apple Music account "
-                        + "(wrapper-lite does not support radio yet).\n"
-                        + "Sign in to music.apple.com in the page below and it is filled in for you.\n"
-                        + "Manual route: DevTools → Application → Cookies → "
-                        + "https://music.apple.com, copy the media-user-token value and paste it below.\n"
-                        + "The token is stored in this app only; downloads hand it to wrapper-lite, "
-                        + "which forwards it to Apple. Nothing is uploaded anywhere else.");
         put("web.reload", "刷新", "再読み込み", "Reload");
-        put("web.loading", "正在加载…", "読み込み中…", "Loading…");
-        put("web.waiting", "登录完成后会自动抓取并保存 media-user-token",
-                "ログイン後に media-user-token を自動取得して保存します",
-                "Your media-user-token is fetched and saved once you sign in");
         put("web.saved", "已保存 media-user-token",
                 "media-user-token を保存しました", "media-user-token saved");
-        put("web.saved.preview", "已获取并保存：%s", "取得して保存しました：%s",
-                "Fetched and saved: %s");
-        put("web.timeout", "还没检测到：请确认已经登录，或在下面手动粘贴",
-                "まだ検出できません：ログイン済みか確認するか、下の欄に貼り付けてください",
-                "Not detected yet: make sure you are signed in, or paste it below");
+        put("web.timeout", "还没检测到 media-user-token：请确认已经登录，并停留在 music.apple.com 页面",
+                "media-user-token を検出できません：ログイン済みか確認し、music.apple.com のページを開いたままにしてください",
+                "media-user-token not detected: make sure you are signed in and stay on the "
+                        + "music.apple.com page");
         put("web.error", "页面加载失败：%s", "ページを読み込めませんでした：%s",
                 "Page failed to load: %s");
-        put("web.manual", "或手动粘贴 media-user-token",
-                "または media-user-token を貼り付け", "Or paste the media-user-token");
-        put("web.manual.hint", "粘贴 Cookie 里 media-user-token 的值",
-                "Cookie の media-user-token の値を貼り付け",
-                "Paste the media-user-token cookie value");
-        put("web.paste", "粘贴剪贴板", "クリップボードから貼り付け", "Paste clipboard");
-        put("web.save", "保存", "保存", "Save");
-        put("web.empty", "内容为空：请先登录，或把 token 粘贴到输入框",
-                "空です：ログインするか、token を入力欄に貼り付けてください",
-                "Empty: sign in first, or paste the token into the field");
         put("web.fetch", "Web 登录获取", "ウェブで取得", "Fetch via web");
         put("web.unsupported",
                 "这台设备的 WebView 不可用：请用电脑上的开发者工具复制 token，粘贴到「配置」里",

@@ -325,11 +325,13 @@ App 只往“配置”里填写的路径写，没有隐藏的默认目录、也�
 手动做法要开开发者工具翻 Cookie，手机上基本不可行，所以顶栏右上角加了一个 **Web** 按钮：
 
 - 打开内置 WebView（`WebLoginActivity`）加载 `music.apple.com`，正常登录 Apple ID；
+  界面只有一条顶栏（标题 + 刷新 + 关闭）和整屏网页，不放说明卡片、不放输入框，
+  网页该占多少像素就占多少像素；
 - 登录成功后 Cookie 里就有 `media-user-token`，页面每次加载完 + 每 0.8s 轮询一次
   （`CookieManager.getCookie("https://music.apple.com")`），读到就写进 `Prefs.K_MEDIA_TOKEN`，
-  提示“已保存”并自动返回；配置面板里的那一栏同时刷新；
-- 抓不到时（Apple 改 Cookie 名 / WebView 被拦）还有手动通道：把开发者工具里
-  “应用 → Cookie → music.apple.com” 的 `media-user-token` 值粘到底部输入框，或点“粘贴剪贴板”；
+  Toast 说一句“已保存”并自动返回；配置面板里的那一栏同时刷新；
+- 抓不到时（Apple 改 Cookie 名 / WebView 被拦）：在电脑上打开开发者工具，
+  “应用 → Cookie → music.apple.com” 复制 `media-user-token` 的值，粘进配置面板的那一栏；
 - 配置面板里 `media-user-token` 下面也有一个“Web 登录获取”按钮，登录回来输入框就地刷新；
 - 工程细节：放行第三方 Cookie（Apple 登录跨域，否则回跳后没有会话）、去掉 UA 里的 `; wv`（登录页见到
   它会提示浏览器不受支持）、`configChanges` 声明让旋转/分屏不重建（页面与登录状态不丢）；
